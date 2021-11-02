@@ -59,6 +59,7 @@ public:
 	 * @param data initialize the texture's memory with this CPU pointer, size is width*height*bpp
 	 */
 	static glTexture* Create( uint32_t width, uint32_t height, uint32_t format, void* data=NULL );
+	static glTexture* Create2( uint32_t width, uint32_t height, uint32_t format, void* data=NULL );
 	
 	/**
 	 * Free the texture
@@ -206,6 +207,7 @@ private:
 	uint32_t allocDMA( uint32_t type );
 	cudaGraphicsResource* allocInterop( uint32_t type, uint32_t flags );
 
+	bool mNoFixedPipeline;
 	uint32_t mID;
 	uint32_t mPackDMA;
 	uint32_t mUnpackDMA;

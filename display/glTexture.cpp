@@ -215,6 +215,7 @@ inline uint glTextureTypeSize( uint32_t format )
 // constructor
 glTexture::glTexture()
 {
+	mNoFixedPipeline = false;
 	mID     = 0;
 	mWidth  = 0;
 	mHeight = 0;
@@ -280,6 +281,20 @@ glTexture* glTexture::Create( uint32_t width, uint32_t height, uint32_t format, 
 	
 	return tex;
 }
+
+glTexture* glTexture::Create2( uint32_t width, uint32_t height, uint32_t format, void* data )
+{
+	glTexture* tex = new glTexture();
+	tex->mNoFixedPipeline = true;
+
+	if( !tex->init(width, height, format, data) )
+	{
+		LogError(LOG_GL "failed to create %ux%u texture (%s)\n", width, height, glTextureFormatToStr(format));
+		return NULL;
+	}
+		
+	return tex;
+}
 		
 		
 // Alloc
@@ -293,7 +308,8 @@ bool glTexture::init( uint32_t width, uint32_t height, uint32_t format, void* da
 	// generate texture objects
 	uint32_t id = 0;
 	
-	GL(glEnable(GL_TEXTURE_2D));
+	if (!mNoFixedPipeline)
+		GL(glEnable(GL_TEXTURE_2D));
 	GL(glGenTextures(1, &id));
 	GL(glBindTexture(GL_TEXTURE_2D, id));
 	
@@ -316,33 +332,59 @@ bool glTexture::init( uint32_t width, uint32_t height, uint32_t format, void* da
 	mSize   = size;
 
 	GL(glBindTexture(GL_TEXTURE_2D, 0));
-	GL(glDisable(GL_TEXTURE_2D));
+	if (!mNoFixedPipeline)
+		GL(glDisable(GL_TEXTURE_2D));
 
 	return true;
 }
 
-
 // allocDMA
 uint32_t glTexture::allocDMA( uint32_t type )
 {
-	if( type == GL_PIXEL_PACK_BUFFER_ARB && mPackDMA != 0 )
-		return mPackDMA;
-	else if( type == GL_PIXEL_UNPACK_BUFFER_ARB && mUnpackDMA != 0 )
-		return mUnpackDMA;
-	
 	// allocate PBO
 	uint32_t dma = 0;
-	
-	GL_VERIFY(glGenBuffers(1, &dma));
-	GL_VERIFY(glBindBufferARB(type, dma));
-	GL_VERIFY(glBufferDataARB(type, mSize, NULL, GL_DYNAMIC_DRAW_ARB));
-	GL_VERIFY(glBindBufferARB(type, 0));
 
-	if( type == GL_PIXEL_PACK_BUFFER_ARB )
-		mPackDMA = dma;
-	else if( type == GL_PIXEL_UNPACK_BUFFER_ARB )
-		mUnpackDMA = dma;
+	if (!mNoFixedPipeline)
+	{
+		if( type == GL_PIXEL_PACK_BUFFER_ARB && mPackDMA != 0 )
+			return mPackDMA;
+		else if( type == GL_PIXEL_UNPACK_BUFFER_ARB && mUnpackDMA != 0 )
+			return mUnpackDMA;
+						
+		GL_VERIFY(glGenBuffers(1, &dma));
+		GL_VERIFY(glBindBufferARB(type, dma));
+		GL_VERIFY(glBufferDataARB(type, mSize, NULL, GL_DYNAMIC_DRAW_ARB));
+		GL_VERIFY(glBindBufferARB(type, 0));
 
+		if( type == GL_PIXEL_PACK_BUFFER_ARB )
+			mPackDMA = dma;
+		else if( type == GL_PIXEL_UNPACK_BUFFER_ARB )
+			mUnpackDMA = dma;
+	}
+	else
+	{
+		if( type == GL_PIXEL_PACK_BUFFER && mPackDMA != 0 )
+			return mPackDMA;
+		else if( type == GL_PIXEL_UNPACK_BUFFER && mUnpackDMA != 0 )
+			return mUnpackDMA;				
+		
+		LogVerbose(LOG_GL "allocDMA: glGenBuffers\n");
+		GL_VERIFY(glGenBuffers(1, &dma));
+
+		LogVerbose(LOG_GL "allocDMA: glBindBuffer\n");
+		GL_VERIFY(glBindBuffer(type, dma));
+
+		LogVerbose(LOG_GL "allocDMA: glBufferData\n");
+		GL_VERIFY(glBufferData(type, mSize, NULL, GL_DYNAMIC_DRAW));
+
+		LogVerbose(LOG_GL "allocDMA: (un)glBindBuffer\n");
+		GL_VERIFY(glBindBuffer(type, 0));
+
+		if( type == GL_PIXEL_PACK_BUFFER )
+			mPackDMA = dma;
+		else if( type == GL_PIXEL_UNPACK_BUFFER )
+			mUnpackDMA = dma;
+	}
 	return dma;
 }
 	
@@ -350,22 +392,41 @@ uint32_t glTexture::allocDMA( uint32_t type )
 // allocInterop
 cudaGraphicsResource* glTexture::allocInterop( uint32_t type, uint32_t flags )
 {
-	if( type == GL_PIXEL_PACK_BUFFER_ARB && mInteropPack != NULL )
-		return mInteropPack;
-	else if( type == GL_PIXEL_UNPACK_BUFFER_ARB && mInteropUnpack != NULL )
-		return mInteropUnpack;
-
 	cudaGraphicsResource* interop = NULL;
 
-	if( CUDA_FAILED(cudaGraphicsGLRegisterBuffer(&interop, allocDMA(type), cudaGraphicsRegisterFlagsFromGL(flags))) )
-		return NULL;
+	if (!mNoFixedPipeline) 
+	{
+		if( type == GL_PIXEL_PACK_BUFFER_ARB && mInteropPack != NULL )
+			return mInteropPack;
+		else if( type == GL_PIXEL_UNPACK_BUFFER_ARB && mInteropUnpack != NULL )
+			return mInteropUnpack;
 
-	if( type == GL_PIXEL_PACK_BUFFER_ARB )
-		mInteropPack = interop;
-	else if( type == GL_PIXEL_UNPACK_BUFFER_ARB )
-		mInteropUnpack = interop;
+		if( CUDA_FAILED(cudaGraphicsGLRegisterBuffer(&interop, allocDMA(type), cudaGraphicsRegisterFlagsFromGL(flags))) )
+			return NULL;
+
+		if( type == GL_PIXEL_PACK_BUFFER_ARB )
+			mInteropPack = interop;
+		else if( type == GL_PIXEL_UNPACK_BUFFER_ARB )
+			mInteropUnpack = interop;
+	}
+	else
+	{
+		if( type == GL_PIXEL_PACK_BUFFER && mInteropPack != NULL )
+			return mInteropPack;
+		else if( type == GL_PIXEL_UNPACK_BUFFER && mInteropUnpack != NULL )
+			return mInteropUnpack;
+
+		if( CUDA_FAILED(cudaGraphicsGLRegisterBuffer(&interop, allocDMA(type), cudaGraphicsRegisterFlagsFromGL(flags))) )
+			return NULL;
+
+		if( type == GL_PIXEL_PACK_BUFFER )
+			mInteropPack = interop;
+		else if( type == GL_PIXEL_UNPACK_BUFFER )
+			mInteropUnpack = interop;
+	}
 
 	LogVerbose(LOG_CUDA "registered openGL texture for interop access (%ux%u, %s, %u bytes)\n", mWidth, mHeight, glTextureFormatToStr(mFormat), mSize);
+
 	return interop;
 }
 
@@ -376,8 +437,19 @@ bool glTexture::Bind()
 	if( !mID )
 		return false;
 
-	GL_VERIFY(glEnable(GL_TEXTURE_2D));
-	GL_VERIFY(glActiveTextureARB(GL_TEXTURE0_ARB));
+	if (!mNoFixedPipeline)
+		GL_VERIFY(glEnable(GL_TEXTURE_2D));
+
+	if (!mNoFixedPipeline)
+	{
+		GL_VERIFY(glActiveTextureARB(GL_TEXTURE0_ARB));
+	}/*
+	else
+	{
+		LogVerbose(LOG_GL "glActiveTexture\n");
+		GL_VERIFY(glActiveTexture(GL_TEXTURE0));
+	}*/
+
 	GL_VERIFY(glBindTexture(GL_TEXTURE_2D, mID));
 
 	return true;
@@ -388,7 +460,8 @@ bool glTexture::Bind()
 void glTexture::Unbind()
 {
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
+	if (!mNoFixedPipeline)
+		glDisable(GL_TEXTURE_2D);
 }
 
 
@@ -435,12 +508,22 @@ void glTexture::Render( float x, float y, float width, float height )
 
 
 // dmaTypeFromFlags
-static inline uint32_t dmaTypeFromFlags( uint32_t flags )
+static inline uint32_t dmaTypeFromFlags( uint32_t flags, bool NoFixedPipeline )
 {
-	if( flags == GL_READ_ONLY )
-		return GL_PIXEL_PACK_BUFFER_ARB;
+	if (!NoFixedPipeline) 
+	{
+		if( flags == GL_READ_ONLY )
+			return GL_PIXEL_PACK_BUFFER_ARB;
+		else
+			return GL_PIXEL_UNPACK_BUFFER_ARB;	// GL_READ_WRITE?
+	}
 	else
-		return GL_PIXEL_UNPACK_BUFFER_ARB;	// GL_READ_WRITE?
+	{
+		if( flags == GL_READ_ONLY )
+			return GL_PIXEL_PACK_BUFFER;
+		else
+			return GL_PIXEL_UNPACK_BUFFER;
+	}
 }
 
 
@@ -465,8 +548,11 @@ void* glTexture::Map( uint32_t device, uint32_t flags )
 	// make sure DMA buffer is allocated	
 	void* dmaPtr = NULL;
 
-	const uint32_t dmaType = dmaTypeFromFlags(flags);
+	const uint32_t dmaType = dmaTypeFromFlags(flags, mNoFixedPipeline);
+
+	LogVerbose(LOG_GL "allocDMA...\n");
 	const uint32_t dmaBuffer = allocDMA(dmaType);
+	LogVerbose(LOG_GL "allocDMA success!\n");
 
 	if( !dmaBuffer )
 		return NULL;
@@ -484,7 +570,12 @@ void* glTexture::Map( uint32_t device, uint32_t flags )
 		if( flags == GL_WRITE_DISCARD )
 		{
 			// invalidate the old buffer so we can map without stalling
-			GL(glBufferDataARB(GL_PIXEL_UNPACK_BUFFER_ARB, mSize, NULL, GL_STREAM_DRAW_ARB));	
+			if (!mNoFixedPipeline){
+				GL(glBufferDataARB(GL_PIXEL_UNPACK_BUFFER_ARB, mSize, NULL, GL_STREAM_DRAW_ARB));	
+			}else{
+				GL(glBufferData(GL_PIXEL_UNPACK_BUFFER, mSize, NULL, GL_STREAM_DRAW));
+			}
+
 			flags = GL_WRITE_ONLY; // GL expects GL_WRITE_ONLY
 		}
 		else if( flags == GL_READ_ONLY )
@@ -507,9 +598,18 @@ void* glTexture::Map( uint32_t device, uint32_t flags )
 	{
 		if( flags == GL_READ_ONLY )
 		{
-			GL(glBindBuffer(GL_PIXEL_PACK_BUFFER_ARB, mPackDMA));
-			GL(glReadPixels(0, 0, mWidth, mHeight, glTextureLayout(mFormat), glTextureType(mFormat), NULL));
-			GL(glBindBuffer(GL_PIXEL_PACK_BUFFER_ARB, 0));
+			if (!mNoFixedPipeline)
+			{
+				GL(glBindBuffer(GL_PIXEL_PACK_BUFFER_ARB, mPackDMA));
+				GL(glReadPixels(0, 0, mWidth, mHeight, glTextureLayout(mFormat), glTextureType(mFormat), NULL));
+				GL(glBindBuffer(GL_PIXEL_PACK_BUFFER_ARB, 0));
+			}
+			else
+			{
+				GL(glBindBuffer(GL_PIXEL_PACK_BUFFER, mPackDMA));
+				GL(glReadPixels(0, 0, mWidth, mHeight, glTextureLayout(mFormat), glTextureType(mFormat), NULL));
+				GL(glBindBuffer(GL_PIXEL_PACK_BUFFER, 0));
+			}
 		}
 
 		// make sure CUDA resource is registered
@@ -553,7 +653,7 @@ void glTexture::Unmap()
 	if( !Bind() )
 		return;
 
-	const uint32_t dmaType = dmaTypeFromFlags(mMapFlags);
+	const uint32_t dmaType = dmaTypeFromFlags(mMapFlags, mNoFixedPipeline);
 
 	if( mMapDevice == GL_MAP_CPU )
 	{
@@ -575,9 +675,18 @@ void glTexture::Unmap()
 
 		if( mMapFlags != GL_READ_ONLY )
 		{
-			GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, mUnpackDMA));
-			GL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mWidth, mHeight, glTextureLayout(mFormat), glTextureType(mFormat), NULL));
-			GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0));	
+			if (!mNoFixedPipeline)
+			{
+				GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, mUnpackDMA));
+				GL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mWidth, mHeight, glTextureLayout(mFormat), glTextureType(mFormat), NULL));
+				GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0));	
+			}
+			else
+			{
+				GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mUnpackDMA));
+				GL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mWidth, mHeight, glTextureLayout(mFormat), glTextureType(mFormat), NULL));
+				GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0));	
+			}
 		}
 	}
 
@@ -663,114 +772,5 @@ bool glTexture::Copy( void* ptr, uint32_t flags )
 {
 	return Copy(ptr, 0, mSize, flags);
 }
-
-#if 0
-// MapCUDA
-void* glTexture::MapCUDA()
-{
-	if( !mInteropCUDA )
-	{
-		if( CUDA_FAILED(cudaGraphicsGLRegisterBuffer(&mInteropCUDA, mDMA, cudaGraphicsRegisterFlagsWriteDiscard)) )
-			return NULL;
-
-		printf(LOG_CUDA "registered %u byte openGL texture for interop access (%ux%u)\n", mSize, mWidth, mHeight);
-	}
-	
-	if( CUDA_FAILED(cudaGraphicsMapResources(1, &mInteropCUDA)) )
-		return NULL;
-	
-	void*  devPtr     = NULL;
-	size_t mappedSize = 0;
-
-	if( CUDA_FAILED(cudaGraphicsResourceGetMappedPointer(&devPtr, &mappedSize, mInteropCUDA)) )
-	{
-		CUDA(cudaGraphicsUnmapResources(1, &mInteropCUDA));
-		return NULL;
-	}
-	
-	if( mSize != mappedSize )
-		printf(LOG_GL "glTexture::MapCUDA() -- size mismatch %zu bytes  (expected=%u)\n", mappedSize, mSize);
-		
-	return devPtr;
-}
-
-
-// Unmap
-void glTexture::Unmap()
-{
-	if( !mInteropCUDA )
-		return;
-		
-	CUDA(cudaGraphicsUnmapResources(1, &mInteropCUDA));
-	
-	GL(glEnable(GL_TEXTURE_2D));
-	GL(glBindTexture(GL_TEXTURE_2D, mID));
-	GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, mDMA));
-	GL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mWidth, mHeight, glTextureLayout(mFormat), glTextureType(mFormat), NULL));
-	
-	GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0));
-	GL(glBindTexture(GL_TEXTURE_2D, 0));
-	GL(glDisable(GL_TEXTURE_2D));
-}
-
-
-// Upload
-bool glTexture::UploadCPU( void* data )
-{
-	// activate texture & pbo
-	GL(glEnable(GL_TEXTURE_2D));
-	GL(glActiveTextureARB(GL_TEXTURE0_ARB));
-	GL(glBindTexture(GL_TEXTURE_2D, mID));
-	GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0));
-	GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, mDMA));
-
-	//GL(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
-	//GL(glPixelStorei(GL_UNPACK_ROW_LENGTH, img->GetWidth()));
-	//GL(glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, img->GetHeight()));
-
-	// hint to driver to double-buffer
-	// glBufferDataARB(GL_PIXEL_UNPACK_BUFFER_ARB, mImage->GetSize(), NULL, GL_STREAM_DRAW_ARB);	
-
-	// map PBO
-	GLubyte* ptr = (GLubyte*)glMapBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, GL_WRITE_ONLY_ARB);
-	        
-	if( !ptr )
-	{
-		GL_CHECK("glMapBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, GL_WRITE_ONLY_ARB)");
-		return NULL;
-	}
-
-	memcpy(ptr, data, mSize);
-
-	GL(glUnmapBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB)); 
-
-	//GL(glEnable(GL_TEXTURE_2D));
-	//GL(glBindTexture(GL_TEXTURE_2D, mID));
-	//GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, mDMA));
-	GL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mWidth, mHeight, glTextureLayout(mFormat), glTextureType(mFormat), NULL));
-	
-	GL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0));
-	GL(glBindTexture(GL_TEXTURE_2D, 0));
-	GL(glDisable(GL_TEXTURE_2D));
-
-	/*if( !mInteropHost || !mInteropDevice )
-	{
-		if( !cudaAllocMapped(&mInteropHost, &mInteropDevice, mSize) )
-			return false;
-	}
-	
-	memcpy(mInteropHost, data, mSize);
-	
-	void* devGL = MapCUDA();
-	
-	if( !devGL )
-		return false;
-		
-	CUDA(cudaMemcpy(devGL, mInteropDevice, mSize, cudaMemcpyDeviceToDevice));
-	Unmap();*/
-
-	return true;
-}
-#endif
 
 
