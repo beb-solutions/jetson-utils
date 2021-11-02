@@ -500,14 +500,14 @@ bool gstDecoder::buildLaunchStr()
 		}
 
 		ss << "udpsrc port=" << uri.port;
-		ss << " multicast-group=" << uri.location << " auto-multicast=true";
+		//ss << " multicast-group=" << uri.location << " auto-multicast=true";
 
 		ss << " caps=\"" << "application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)";
 		
 		if( mOptions.codec == videoOptions::CODEC_H264 )
-			ss << "H264\" ! rtph264depay ! h264parse ! ";
+			ss << "H264\" ! rtph264depay ! queue ! h264parse ! ";
 		else if( mOptions.codec == videoOptions::CODEC_H265 )
-			ss << "H265\" ! rtph265depay ! h265parse ! ";
+			ss << "H265\" ! rtph265depay ! queue ! h265parse ! ";
 		else if( mOptions.codec == videoOptions::CODEC_VP8 )
 			ss << "VP8\" ! rtpvp8depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_VP9 )
@@ -556,10 +556,18 @@ bool gstDecoder::buildLaunchStr()
 	}
 
 #if GST_CHECK_VERSION(1,0,0)
-	if( mOptions.codec == videoOptions::CODEC_H264 )
-		ss << "omxh264dec ! ";
-	else if( mOptions.codec == videoOptions::CODEC_H265 )
-		ss << "omxh265dec ! ";
+	if( mOptions.codec == videoOptions::CODEC_H264 ) {
+		if( uri.protocol == "rtp" )
+			ss << "omxh264dec disable-dpb=true ! ";
+		else
+			ss << "omxh264dec ! ";
+	}
+	else if( mOptions.codec == videoOptions::CODEC_H265 ) {
+		if( uri.protocol == "rtp" )
+			ss << "omxh265dec disable-dpb=true ! ";
+		else
+			ss << "omxh265dec ! ";
+	}	
 	else if( mOptions.codec == videoOptions::CODEC_VP8 )
 		ss << "omxvp8dec ! ";
 	else if( mOptions.codec == videoOptions::CODEC_VP9 )
