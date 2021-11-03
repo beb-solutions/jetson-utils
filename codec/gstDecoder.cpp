@@ -631,7 +631,8 @@ bool gstDecoder::buildLaunchStr()
 		ss << "video/x-raw";
 		
 	#ifndef DISABLE_NVMM
-		ss << "(" << GST_CAPS_FEATURE_MEMORY_NVMM << ")";
+		if (mOptions.codec != videoOptions::CODEC_MJPEG)
+			ss << "(" << GST_CAPS_FEATURE_MEMORY_NVMM << ")";
 	#endif
 	
 		ss << " ! ";
