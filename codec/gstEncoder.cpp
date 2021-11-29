@@ -256,7 +256,7 @@ bool gstEncoder::buildLaunchStr()
 	std::ostringstream ss;
 
 	// setup appsrc input element
-	ss << "appsrc name=mysource is-live=true do-timestamp=true format=3 ! ";
+	ss << "appsrc name=mysource ! "; // is-live=true do-timestamp=true format=3 ! ";
 
 	// set default bitrate (if needed)
 	if( mOptions.bitRate == 0 )
@@ -271,7 +271,7 @@ bool gstEncoder::buildLaunchStr()
 	if( mOptions.codec == videoOptions::CODEC_H264 )
 		ss << "omxh264enc bitrate=" << mOptions.bitRate << " ! video/x-h264 !  ";	// TODO:  investigate quality-level setting
 	else if( mOptions.codec == videoOptions::CODEC_H265 )
-		ss << "omxh265enc bitrate=" << mOptions.bitRate << " ! video/x-h265 ! ";
+		ss << "omxh265enc bitrate=" << mOptions.bitRate << " control-rate=2 preset-level=0 EnableTwopassCBR=false ! video/x-h265 ! ";
 	else if( mOptions.codec == videoOptions::CODEC_VP8 )
 		ss << "omxvp8enc bitrate=" << mOptions.bitRate << " ! video/x-vp8 ! ";
 	else if( mOptions.codec == videoOptions::CODEC_VP9 )
@@ -358,7 +358,7 @@ bool gstEncoder::buildLaunchStr()
 		if( mOptions.codec == videoOptions::CODEC_H264 )
 			ss << "rtph264pay";
 		else if( mOptions.codec == videoOptions::CODEC_H265 )
-			ss << "rtph265pay";
+			ss << " queue ! rtph265pay ";
 		else if( mOptions.codec == videoOptions::CODEC_VP8 )
 			ss << "rtpvp8pay";
 		else if( mOptions.codec == videoOptions::CODEC_VP9 )
@@ -367,7 +367,7 @@ bool gstEncoder::buildLaunchStr()
 			ss << "rtpjpegpay";
 
 		if (mOptions.codec == videoOptions::CODEC_H264 || mOptions.codec == videoOptions::CODEC_H265) {
-				ss << " config-interval=1 ! udpsink host=";
+				ss << " config-interval=-1 ! udpsink host=";
 		} else {
 				ss << " ! udpsink host=";
 		}
@@ -376,7 +376,7 @@ bool gstEncoder::buildLaunchStr()
 		if( uri.port != 0 )
 			ss << "port=" << uri.port;
 
-		ss << " auto-multicast=true";
+		//ss << " auto-multicast=true";
 
 		mOptions.deviceType = videoOptions::DEVICE_IP;
 	}
