@@ -33,6 +33,8 @@ videoOptions::videoOptions()
 	height 	  = 0;
 	frameRate   = 0;
 	bitRate     = 0;
+	fecPayload  = 0;
+	rtpJitterBufferLatency = 0;
 	numBuffers  = 4;
 	loop        = 0;
 	rtspLatency = 2000;
@@ -64,6 +66,8 @@ void videoOptions::Print( const char* prefix ) const
 	LogInfo("  -- height:     %u\n", height);
 	LogInfo("  -- frameRate:  %f\n", frameRate);
 	LogInfo("  -- bitRate:    %u\n", bitRate);
+	LogInfo("  -- fecPayload: %u\n", fecPayload);
+	LogInfo("  -- rtpJitterBufferLatency: %u\n", rtpJitterBufferLatency);
 	LogInfo("  -- numBuffers: %u\n", numBuffers);
 	LogInfo("  -- zeroCopy:   %s\n", zeroCopy ? "true" : "false");	
 	LogInfo("  -- flipMethod: %s\n", FlipMethodToStr(flipMethod));
@@ -154,6 +158,14 @@ bool videoOptions::Parse( const char* URI, const commandLine& cmdLine, videoOpti
 	// bitrate
 	if( type == OUTPUT )
 		bitRate = cmdLine.GetUnsignedInt("bitrate", bitRate);
+
+	// fec-fecPayLoad
+	if( type == OUTPUT )
+		fecPayload = cmdLine.GetUnsignedInt("fec-payload", fecPayload);
+
+	// rtpJitterBufferLatency
+	if( type == OUTPUT )
+		rtpJitterBufferLatency = cmdLine.GetUnsignedInt("rtp-jitter-buffer-latency", rtpJitterBufferLatency);
 
 	// loop
 	if( type == INPUT )

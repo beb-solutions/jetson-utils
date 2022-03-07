@@ -77,6 +77,19 @@ public:
 	uint32_t bitRate;
 
 	/**
+	 * The forward error correction (fec) payload type.
+	 * If zero, fec will be disabled.4
+	 * Will need rtpJitterBufferLatency > 0!
+	 */
+	uint32_t fecPayload;
+
+	/**
+	 * The frtp jitterbuffer latency time [ms].
+	 * If zero, jitterbuffer will be disabled.
+	 */
+	uint32_t rtpJitterBufferLatency;
+
+	/**
 	 * The number of ring buffers used for threading.
 	 * This option can be set from the command line using `--num-buffers=N`.
 	 * @note the default number of ring buffers is 4.

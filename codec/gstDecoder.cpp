@@ -502,23 +502,67 @@ bool gstDecoder::buildLaunchStr()
 		ss << "udpsrc port=" << uri.port;
 		//ss << " multicast-group=" << uri.location << " auto-multicast=true";
 
-		ss << " caps=\"" << "application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)";
-		
-		if( mOptions.codec == videoOptions::CODEC_H264 )
-			ss << "H264\" ! rtph264depay ! queue ! h264parse ! ";
-		else if( mOptions.codec == videoOptions::CODEC_H265 )
-			ss << "H265\" ! rtph265depay ! queue ! h265parse ! ";
-		else if( mOptions.codec == videoOptions::CODEC_VP8 )
-			ss << "VP8\" ! rtpvp8depay ! ";
-		else if( mOptions.codec == videoOptions::CODEC_VP9 )
-			ss << "VP9\" ! rtpvp9depay ! ";
-		else if( mOptions.codec == videoOptions::CODEC_MPEG2 )
-			ss << "MP2T\" ! rtpmp2tdepay ! ";		// MP2T-ES
-		else if( mOptions.codec == videoOptions::CODEC_MPEG4 )
-			ss << "MP4V-ES\" ! rtpmp4vdepay ! ";	// MPEG4-GENERIC\" ! rtpmp4gdepay
-		else if( mOptions.codec == videoOptions::CODEC_MJPEG )
-			ss << "JPEG\" ! rtpjpegdepay ! ";
+		if( mOptions.rtpJitterBufferLatency == 0) // no fec and no jitter buffer
+		{
+			ss << " caps=\"" << "application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)";
+			
+			if( mOptions.codec == videoOptions::CODEC_H264 )
+				ss << "H264\" ! rtph264depay ! h264parse ! ";
+			else if( mOptions.codec == videoOptions::CODEC_H265 )
+				ss << "H265\" ! rtph265depay ! h265parse ! ";
+			else if( mOptions.codec == videoOptions::CODEC_VP8 )
+				ss << "VP8\" ! rtpvp8depay ! ";
+			else if( mOptions.codec == videoOptions::CODEC_VP9 )
+				ss << "VP9\" ! rtpvp9depay ! ";
+			else if( mOptions.codec == videoOptions::CODEC_MPEG2 )
+				ss << "MP2T\" ! rtpmp2tdepay ! ";		// MP2T-ES
+			else if( mOptions.codec == videoOptions::CODEC_MPEG4 )
+				ss << "MP4V-ES\" ! rtpmp4vdepay ! ";	// MPEG4-GENERIC\" ! rtpmp4gdepay
+			else if( mOptions.codec == videoOptions::CODEC_MJPEG )
+				ss << "JPEG\" ! rtpjpegdepay ! ";
+		}
+		else if ( mOptions.fecPayload > 0) // with jitter buffer and optional fec
+		{
+			ss << " caps=\"" << "application/x-rtp, payload=96, clock-rate=90000\"";
+			ss << " ! rtpstorage size-time=" << mOptions.rtpJitterBufferLatency * 100000000;
+			ss << " ! rtpssrcdemux ! application/x-rtp, payload=96, clock-rate=90000, media=video, encoding-name=";
 
+			if( mOptions.codec == videoOptions::CODEC_H264 )
+				ss << "H264";
+			else if( mOptions.codec == videoOptions::CODEC_H265 )
+				ss << "H265";
+			else if( mOptions.codec == videoOptions::CODEC_VP8 )
+				ss << "VP8";
+			else if( mOptions.codec == videoOptions::CODEC_VP9 )
+				ss << "VP9";
+			else if( mOptions.codec == videoOptions::CODEC_MPEG2 )
+				ss << "MP2T";		// MP2T-ES
+			else if( mOptions.codec == videoOptions::CODEC_MPEG4 )
+				ss << "MP4V-ES";	// MPEG4-GENERIC\" ! rtpmp4gdepay
+			else if( mOptions.codec == videoOptions::CODEC_MJPEG )
+				ss << "JPEG";
+
+			ss << " ! rtpjitterbuffer latency=" << mOptions.rtpJitterBufferLatency;
+
+			if ( mOptions.fecPayload > 0) // with fec
+				ss << " ! rtpulpfecdec pt=" << mOptions.fecPayload;
+
+			if( mOptions.codec == videoOptions::CODEC_H264 )
+				ss << " ! rtph264depay ! h264parse ! ";
+			else if( mOptions.codec == videoOptions::CODEC_H265 )
+				ss << " ! rtph265depay ! h265parse ! ";
+			else if( mOptions.codec == videoOptions::CODEC_VP8 )
+				ss << " ! rtpvp8depay ! ";
+			else if( mOptions.codec == videoOptions::CODEC_VP9 )
+				ss << " ! rtpvp9depay ! ";
+			else if( mOptions.codec == videoOptions::CODEC_MPEG2 )
+				ss << " ! rtpmp2tdepay ! ";		// MP2T-ES
+			else if( mOptions.codec == videoOptions::CODEC_MPEG4 )
+				ss << " ! rtpmp4vdepay ! ";	// MPEG4-GENERIC\" ! rtpmp4gdepay
+			else if( mOptions.codec == videoOptions::CODEC_MJPEG )
+				ss << " ! rtpjpegdepay ! ";
+		}
+		
 		mOptions.deviceType = videoOptions::DEVICE_IP;
 	}
 	else if( uri.protocol == "rtsp" )
@@ -558,15 +602,17 @@ bool gstDecoder::buildLaunchStr()
 #if GST_CHECK_VERSION(1,0,0)
 	if( mOptions.codec == videoOptions::CODEC_H264 ) {
 		if( uri.protocol == "rtp" )
-			ss << "omxh264dec disable-dpb=true ! ";
+			ss << "queue ! omxh264dec disable-dpb=true ! ";
+			//ss << "queue ! nvv4l2decoder disable-dpb=true enable-max-performance=true ! ";
 		else
-			ss << "omxh264dec ! ";
+			ss << "queue ! omxh264dec ! ";
 	}
 	else if( mOptions.codec == videoOptions::CODEC_H265 ) {
 		if( uri.protocol == "rtp" )
-			ss << "omxh265dec disable-dpb=true ! ";
+			ss << "queue ! omxh265dec disable-dpb=true ! ";
+			//ss << "queue ! nvv4l2decoder disable-dpb=true enable-max-performance=true ! ";
 		else
-			ss << "omxh265dec ! ";
+			ss << "queue ! omxh265dec ! ";
 	}	
 	else if( mOptions.codec == videoOptions::CODEC_VP8 )
 		ss << "omxvp8dec ! ";
