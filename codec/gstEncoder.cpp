@@ -269,9 +269,9 @@ bool gstEncoder::buildLaunchStr()
 	//ss << mCapsStr << " ! ";
 
 	if( mOptions.codec == videoOptions::CODEC_H264 )
-		ss << "omxh264enc bitrate=" << mOptions.bitRate << " control-rate=2 preset-level=0 EnableTwopassCBR=false ! video/x-h264 !  ";	// TODO:  investigate quality-level setting
+		ss << "omxh264enc bitrate=" << mOptions.bitRate << " control-rate=2 preset-level=0 !  ";
 	else if( mOptions.codec == videoOptions::CODEC_H265 )
-		ss << "omxh265enc bitrate=" << mOptions.bitRate << " control-rate=2 preset-level=0 EnableTwopassCBR=false ! video/x-h265 ! ";
+		ss << "omxh265enc bitrate=" << mOptions.bitRate << " control-rate=2 preset-level=0 ! ";
 	else if( mOptions.codec == videoOptions::CODEC_VP8 )
 		ss << "omxvp8enc bitrate=" << mOptions.bitRate << " ! video/x-vp8 ! ";
 	else if( mOptions.codec == videoOptions::CODEC_VP9 )
@@ -358,7 +358,7 @@ bool gstEncoder::buildLaunchStr()
 		if( mOptions.codec == videoOptions::CODEC_H264 )
 			ss << "rtph264pay";
 		else if( mOptions.codec == videoOptions::CODEC_H265 )
-			ss << " queue ! rtph265pay ";
+			ss << "rtph265pay ";
 		else if( mOptions.codec == videoOptions::CODEC_VP8 )
 			ss << "rtpvp8pay";
 		else if( mOptions.codec == videoOptions::CODEC_VP9 )
@@ -367,11 +367,15 @@ bool gstEncoder::buildLaunchStr()
 			ss << "rtpjpegpay";
 
 		if (mOptions.codec == videoOptions::CODEC_H264 || mOptions.codec == videoOptions::CODEC_H265) {
-				ss << " config-interval=-1 ! udpsink host=";
-		} else {
-				ss << " ! udpsink host=";
+			ss << " config-interval=-1 pt=96";
 		}
-		ss << uri.location << " ";
+
+		if (mOptions.fecPayload > 0) {
+			ss << " ! rtpulpfecenc percentage=" << mOptions.fecPercentage;
+			ss << " percentage-important=100 pt=" << mOptions.fecPayload;
+		}
+
+		ss << " ! udpsink host=" << uri.location << " ";
 
 		if( uri.port != 0 )
 			ss << "port=" << uri.port;

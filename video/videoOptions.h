@@ -78,10 +78,15 @@ public:
 
 	/**
 	 * The forward error correction (fec) payload type.
-	 * If zero, fec will be disabled.4
+	 * If zero, fec will be disabled.
 	 * Will need rtpJitterBufferLatency > 0!
 	 */
 	uint32_t fecPayload;
+
+	/**
+	 * The forward error correction (fec) percentage (send).
+	 */
+	uint32_t fecPercentage;
 
 	/**
 	 * The frtp jitterbuffer latency time [ms].
