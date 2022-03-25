@@ -45,7 +45,7 @@
 		  "  --input-width=WIDTH    explicitly request a width of the stream (optional)\n"   	\
 		  "  --input-height=HEIGHT  explicitly request a height of the stream (optional)\n"  	\
 		  "  --input-rate=RATE      explicitly request a framerate of the stream (optional)\n"	\
-		  "  --fec-payload-type=PT  RTP forward error correction pyload type\n"			\
+		  "  --fec-payload=PT  RTP forward error correction pyload type\n"			\
 		  "  --rtp-jitter-buffer-latency  RTP jitterbuffer latency time [ms]\n"			\
 		  "  --input-codec=CODEC    RTP requires the codec to be set, one of these:\n"			\
 		  "                             * h264, h265\n"									\
