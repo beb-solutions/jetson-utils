@@ -195,7 +195,7 @@ bool gstBufferManager::Enqueue( GstBuffer* gstBuffer, GstCaps* gstCaps )
 			return false;
 		}
 		
-		const bool nvmmReleaseFD = (g_strcmp0(gstMemory->allocator->mem_type, "nvfilter") != 0);	
+		//const bool nvmmReleaseFD = (g_strcmp0(gstMemory->allocator->mem_type, "nvfilter") != 0);	
 		
 		// update latest frame so capture thread can grab it
 		mNvmmMutex.Lock();
@@ -204,13 +204,13 @@ bool gstBufferManager::Enqueue( GstBuffer* gstBuffer, GstCaps* gstCaps )
 		{
 			NvDestroyEGLImage(NULL, mNvmmEGL);
 			
-			if( mNvmmReleaseFD )
-				NvReleaseFd(mNvmmFD);
+			//if( mNvmmReleaseFD )
+			//	NvReleaseFd(mNvmmFD);
 		}
 		
 		mNvmmFD = nvmmFD;
 		mNvmmEGL = eglImage;
-		mNvmmReleaseFD = nvmmReleaseFD;
+		//mNvmmReleaseFD = nvmmReleaseFD;
 		
 		mNvmmMutex.Unlock();
 	}
@@ -269,12 +269,12 @@ bool gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t time
 		mNvmmMutex.Lock();
 		
 		const int nvmmFD = mNvmmFD;
-		const bool nvmmReleaseFD = mNvmmReleaseFD;
+		//const bool nvmmReleaseFD = mNvmmReleaseFD;
 		EGLImageKHR eglImage = (EGLImageKHR)mNvmmEGL;
 		
 		mNvmmFD = -1;
 		mNvmmEGL = NULL;
-		mNvmmReleaseFD = false;
+		//mNvmmReleaseFD = false;
 		
 		mNvmmMutex.Unlock();
 		
@@ -356,8 +356,8 @@ bool gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t time
 		CUDA(cudaGraphicsUnregisterResource(eglResource));
 		NvDestroyEGLImage(NULL, eglImage);
 		
-		if( nvmmReleaseFD )
-			NvReleaseFd(nvmmFD);
+		//if( nvmmReleaseFD )
+		//	NvReleaseFd(nvmmFD);
 	}
 #endif
 
