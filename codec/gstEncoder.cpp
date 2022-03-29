@@ -272,10 +272,11 @@ bool gstEncoder::buildLaunchStr()
 		ss << "omxh264enc bitrate=" << mOptions.bitRate << " control-rate=2 preset-level=0 !  ";
 	else if( mOptions.codec == videoOptions::CODEC_H265 )
 		ss << "omxh265enc bitrate=" << mOptions.bitRate << " control-rate=2 preset-level=0 ! ";
+		//ss << "nvv4l2h265enc bitrate=" << mOptions.bitRate << " control-rate=1 preset-level=1 ! ";
 	else if( mOptions.codec == videoOptions::CODEC_VP8 )
-		ss << "omxvp8enc bitrate=" << mOptions.bitRate << " ! video/x-vp8 ! ";
+		ss << "omxvp8enc bitrate=" << mOptions.bitRate << " control-rate=2 preset-level=0 ! ";
 	else if( mOptions.codec == videoOptions::CODEC_VP9 )
-		ss << "omxvp9enc bitrate=" << mOptions.bitRate << " ! video/x-vp9 ! ";
+		ss << "omxvp9enc bitrate=" << mOptions.bitRate << " control-rate=2 preset-level=0 ! ";
 	else if( mOptions.codec == videoOptions::CODEC_MJPEG )
 		ss << "nvjpegenc ! image/jpeg ! ";
 #else

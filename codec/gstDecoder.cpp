@@ -615,9 +615,9 @@ bool gstDecoder::buildLaunchStr()
 			ss << "queue ! omxh265dec ! ";
 	}	
 	else if( mOptions.codec == videoOptions::CODEC_VP8 )
-		ss << "omxvp8dec ! ";
+		ss << "omxvp8dec disable-dpb=true ! ";
 	else if( mOptions.codec == videoOptions::CODEC_VP9 )
-		ss << "omxvp9dec ! ";
+		ss << "omxvp9dec disable-dpb=true ! ";
 	else if( mOptions.codec == videoOptions::CODEC_MPEG2 )
 		ss << "omxmpeg2videodec ! ";
 	else if( mOptions.codec == videoOptions::CODEC_MPEG4 )
