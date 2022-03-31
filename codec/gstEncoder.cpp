@@ -587,8 +587,7 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 	enc_success = encodeYUV(nextYUV, i420Size);
 
 	// render sub-streams
-	//render_end();	
-	return enc_success;
+	render_end();
 }
 
 
