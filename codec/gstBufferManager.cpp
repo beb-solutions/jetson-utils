@@ -37,6 +37,7 @@ gstBufferManager::gstBufferManager( videoOptions* options )
 	mOptions    = options;
 	mFormatYUV  = IMAGE_UNKNOWN;
 	mFrameCount = 0;
+	mFormatRGB  = IMAGE_UNKNOWN;
 	
 #ifndef DISABLE_NVMM
 	mNvmmFD        = -1;
@@ -243,24 +244,24 @@ bool gstBufferManager::Enqueue( GstBuffer* gstBuffer, GstCaps* gstCaps )
 		mBufferYUV.Next(RingBuffer::Write);
 	}
 
-	mWaitEvent.Wake();
-	mFrameCount++;
+	if (Convert()) {
+		mWaitEvent.Wake();
+		mFrameCount++;
+	}
 	
 #if GST_CHECK_VERSION(1,0,0)
 	gst_buffer_unmap(gstBuffer, &map);
 #endif
-	
+		
 	return true;
 }
 
-
-// Dequeue
-bool gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeout )
-{
-	// wait until a new frame is recieved
-	if( !mWaitEvent.Wait(timeout) )
+bool gstBufferManager::Convert() {
+	if (mFormatRGB == IMAGE_UNKNOWN)
 		return false;
 
+	imageFormat format = mFormatRGB;
+	
 	void* latestYUV = NULL;
 	
 #ifndef DISABLE_NVMM
@@ -392,7 +393,19 @@ bool gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t time
 		return false;
 	}
 
-	*output = nextRGB;
 	return true;
 }
 
+// Dequeue
+bool gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeout )
+{
+	if (mFormatRGB == IMAGE_UNKNOWN)
+		mFormatRGB = format;
+	
+	// wait until a new frame is recieved
+	if( !mWaitEvent.Wait(timeout) )
+		return false;
+
+	*output = mBufferRGB.Next(RingBuffer::ReadLatestOnce);
+	return *output != NULL;
+}

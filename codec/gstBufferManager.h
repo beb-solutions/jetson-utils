@@ -77,17 +77,19 @@ public:
 	 */
 	bool Dequeue( void** output, imageFormat format, uint64_t timeout=UINT64_MAX );
 
+	bool Convert(); // just a test
+
 	/**
 	 * Get the total number of frames that have been recieved.
 	 */
 	inline uint64_t GetFrameCount() const	{ return mFrameCount; }
 	
 protected:
-
+	imageFormat   mFormatRGB;  /**< The RGBx colorspace format requested by the application in Dequeue (typically RGB) */
 	imageFormat   mFormatYUV;  /**< The YUV colorspace format coming from appsink (typically NV12 or YUY2) */
 	RingBuffer    mBufferYUV;  /**< Ringbuffer of CPU-based YUV frames (non-NVMM) that come from appsink */
 	RingBuffer    mBufferRGB;  /**< Ringbuffer of frames that have been converted to RGB colorspace */
-	Event	    mWaitEvent;  /**< Event that gets triggered when a new frame is recieved */
+	Event	      mWaitEvent;  /**< Event that gets triggered when a new frame is recieved */
 	
 	videoOptions* mOptions;    /**< Options of the gstDecoder / gstCamera object */			
 	uint64_t	    mFrameCount; /**< Total number of frames that have been recieved */
