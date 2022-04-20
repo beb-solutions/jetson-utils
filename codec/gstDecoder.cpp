@@ -601,18 +601,10 @@ bool gstDecoder::buildLaunchStr()
 
 #if GST_CHECK_VERSION(1,0,0)
 	if( mOptions.codec == videoOptions::CODEC_H264 ) {
-		if( uri.protocol == "rtp" )
-			ss << "omxh264dec disable-dpb=true disable-dvfs=true ! ";
-			//ss << "queue ! nvv4l2decoder disable-dpb=true enable-max-performance=true ! ";
-		else
-			ss << "queue ! omxh264dec ! ";
+		ss << "omxh264dec disable-dpb=true disable-dvfs=true ! ";
 	}
 	else if( mOptions.codec == videoOptions::CODEC_H265 ) {
-		if( uri.protocol == "rtp" )
-			ss << "omxh265dec disable-dpb=true disable-dvfs=true ! ";
-			//ss << "queue ! nvv4l2decoder disable-dpb=true enable-max-performance=true ! ";
-		else
-			ss << "queue ! omxh265dec ! ";
+		ss << "omxh265dec disable-dpb=true disable-dvfs=true ! ";
 	}	
 	else if( mOptions.codec == videoOptions::CODEC_VP8 )
 		ss << "omxvp8dec disable-dpb=true disable-dvfs=true ! ";
