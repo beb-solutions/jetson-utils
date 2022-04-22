@@ -499,12 +499,12 @@ bool gstDecoder::buildLaunchStr()
 			return false;
 		}
 
-		ss << "udpsrc port=" << uri.port;
+		ss << "udpsrc buffer-size=2000000 port=" << uri.port;
 		//ss << " multicast-group=" << uri.location << " auto-multicast=true";
 
 		if( mOptions.rtpJitterBufferLatency == 0) // no fec and no jitter buffer
 		{
-			ss << " caps=\"" << "application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)";
+			ss << " caps=\"" << "application/x-rtp,media=(string)video,clock-rate=(int)90000,payload=(int)96,encoding-name=(string)";
 			
 			if( mOptions.codec == videoOptions::CODEC_H264 )
 				ss << "H264\" ! rtph264depay ! h264parse ! ";
@@ -521,10 +521,11 @@ bool gstDecoder::buildLaunchStr()
 			else if( mOptions.codec == videoOptions::CODEC_MJPEG )
 				ss << "JPEG\" ! rtpjpegdepay ! ";
 		}
-		else if ( mOptions.fecPayload > 0) // with jitter buffer and optional fec
+		else // with jitter buffer and optional fec
 		{
-			ss << " caps=\"" << "application/x-rtp, payload=96, clock-rate=90000\"";
-			ss << " ! rtpstorage size-time=" << mOptions.rtpJitterBufferLatency * 100000000;
+			ss << " caps=\"" << "application/x-rtp,media=(string)video,clock-rate=(int)90000\"";
+			ss << " ! rtpstorage size-time=" << mOptions.rtpJitterBufferLatency * 12500000;
+			
 			ss << " ! application/x-rtp, payload=96, clock-rate=90000, media=video, encoding-name=";
 
 			if( mOptions.codec == videoOptions::CODEC_H264 )
@@ -541,7 +542,7 @@ bool gstDecoder::buildLaunchStr()
 				ss << "MP4V-ES";	// MPEG4-GENERIC\" ! rtpmp4gdepay
 			else if( mOptions.codec == videoOptions::CODEC_MJPEG )
 				ss << "JPEG";
-
+			
 			ss << " ! rtpjitterbuffer latency=" << mOptions.rtpJitterBufferLatency;
 
 			if ( mOptions.fecPayload > 0) // with fec

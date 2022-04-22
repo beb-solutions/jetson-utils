@@ -48,7 +48,7 @@ gstBufferManager::gstBufferManager( videoOptions* options )
 	mNvmmReleaseFD = false;
 #endif
 	
-	mBufferRGB.SetThreaded(false);
+	mBufferRGB.SetThreaded(true);
 }
 
 
@@ -199,7 +199,7 @@ bool gstBufferManager::Enqueue( GstBuffer* gstBuffer, GstCaps* gstCaps )
 		//const bool nvmmReleaseFD = (g_strcmp0(gstMemory->allocator->mem_type, "nvfilter") != 0);	
 		
 		// update latest frame so capture thread can grab it
-		mNvmmMutex.Lock();
+		//mNvmmMutex.Lock();
 		
 		if( mNvmmEGL != NULL )
 		{
@@ -213,7 +213,7 @@ bool gstBufferManager::Enqueue( GstBuffer* gstBuffer, GstCaps* gstCaps )
 		mNvmmEGL = eglImage;
 		//mNvmmReleaseFD = nvmmReleaseFD;
 		
-		mNvmmMutex.Unlock();
+		//mNvmmMutex.Unlock();
 	}
 	else
 	{
@@ -267,7 +267,7 @@ bool gstBufferManager::Convert() {
 #ifndef DISABLE_NVMM
 	if( mNvmmEnabled )
 	{
-		mNvmmMutex.Lock();
+		//mNvmmMutex.Lock();
 		
 		const int nvmmFD = mNvmmFD;
 		//const bool nvmmReleaseFD = mNvmmReleaseFD;
@@ -277,7 +277,7 @@ bool gstBufferManager::Convert() {
 		mNvmmEGL = NULL;
 		//mNvmmReleaseFD = false;
 		
-		mNvmmMutex.Unlock();
+		//mNvmmMutex.Unlock();
 		
 		if( !eglImage )
 			return NULL;
