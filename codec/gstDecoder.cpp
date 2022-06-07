@@ -499,7 +499,7 @@ bool gstDecoder::buildLaunchStr()
 			return false;
 		}
 
-		ss << "udpsrc buffer-size=2000000 port=" << uri.port;
+		ss << "udpsrc blocksize=32768 port=" << uri.port;
 		//ss << " multicast-group=" << uri.location << " auto-multicast=true";
 
 		if( mOptions.rtpJitterBufferLatency == 0) // no fec and no jitter buffer
@@ -688,8 +688,8 @@ bool gstDecoder::buildLaunchStr()
 	}
 
 	// rate-limit if requested
-	if( mCustomRate )
-		ss << "videorate drop-only=true max-rate=" << (int)mOptions.frameRate << " ! ";
+	//if( mCustomRate )
+	//	ss << "videorate drop-only=true max-rate=" << (int)mOptions.frameRate << " ! ";
 
 	// add the app sink
 	ss << "appsink name=mysink"; // wait-on-eos=false;
