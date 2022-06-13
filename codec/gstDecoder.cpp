@@ -499,7 +499,8 @@ bool gstDecoder::buildLaunchStr()
 			return false;
 		}
 
-		ss << "udpsrc blocksize=32768 port=" << uri.port;
+		ss << "udpsrc buffer-size=8000000 port=" << uri.port;
+		//ss << "udpsrc port=" << uri.port;
 		//ss << " multicast-group=" << uri.location << " auto-multicast=true";
 
 		if( mOptions.rtpJitterBufferLatency == 0) // no fec and no jitter buffer
@@ -525,7 +526,6 @@ bool gstDecoder::buildLaunchStr()
 		{
 			ss << " caps=\"" << "application/x-rtp,media=(string)video,clock-rate=(int)90000\"";
 			ss << " ! rtpstorage size-time=" << mOptions.rtpJitterBufferLatency * 12500000;
-			
 			ss << " ! application/x-rtp, payload=96, clock-rate=90000, media=video, encoding-name=";
 
 			if( mOptions.codec == videoOptions::CODEC_H264 )
