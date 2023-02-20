@@ -603,28 +603,28 @@ bool gstDecoder::buildLaunchStr()
 #if GST_CHECK_VERSION(1,0,0)
 	if( mOptions.codec == videoOptions::CODEC_H264 ) {
 		if (uri.protocol == "file")
-			ss << "omxh264dec ! ";
+			ss << "nvv4l2decoder ! ";
 		else
-			ss << "omxh264dec disable-dpb=true ! ";
+			ss << "nvv4l2decoder disable-dpb=true ! ";
 	} else if( mOptions.codec == videoOptions::CODEC_H265 ) {
 		if (uri.protocol == "file")
-			ss << "omxh265dec disable-dpb=true ! ";
+			ss << "nvv4l2decoder disable-dpb=true ! ";
 		else
-			ss << "omxh265dec disable-dpb=true ! ";
+			ss << "nvv4l2decoder disable-dpb=true ! ";
 	} else if( mOptions.codec == videoOptions::CODEC_VP8 ) {
 		if (uri.protocol == "file")
-			ss << "omxvp8dec ! ";
+			ss << "nvv4l2decoder ! ";
 		else
-			ss << "omxvp8dec disable-dpb=true  ! ";
+			ss << "nvv4l2decoder disable-dpb=true  ! ";
 	} else if( mOptions.codec == videoOptions::CODEC_VP9 ) {
 		if (uri.protocol == "file")
-			ss << "omxvp9dec ! ";
+			ss << "nvv4l2decoder ! ";
 		else
-			ss << "omxvp9dec disable-dpb=true  ! ";
+			ss << "nvv4l2decoder disable-dpb=true  ! ";
 	} else if( mOptions.codec == videoOptions::CODEC_MPEG2 )
-		ss << "omxmpeg2videodec ! ";
+		ss << "nvv4l2decoder ! ";
 	else if( mOptions.codec == videoOptions::CODEC_MPEG4 )
-		ss << "omxmpeg4videodec ! ";
+		ss << "nvv4l2decoder ! ";
 	else if( mOptions.codec == videoOptions::CODEC_MJPEG )
 		ss << "nvjpegdec ! ";
 #else
