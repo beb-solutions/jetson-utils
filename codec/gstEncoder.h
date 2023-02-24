@@ -91,6 +91,13 @@ public:
 	virtual void Close();
 
 	/**
+	 * Check if the encoder needs more input data.
+	 * 
+	 * @see videoOutput::NeedData()
+	*/
+	virtual inline bool NeedData() const			{ return mNeedData; }
+
+	/**
 	 * Return the GStreamer pipeline object.
 	 */
 	inline GstPipeline* GetPipeline() const			{ return GST_PIPELINE(mPipeline); }

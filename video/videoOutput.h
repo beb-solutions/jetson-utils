@@ -229,6 +229,13 @@ public:
 	inline bool IsStreaming() const	   					{ return mStreaming; }
 
 	/**
+	 * Check if the encoder needs more input data.
+	 * 
+	 * @returns `true` if the encoder needs more data, or `false` if not
+	*/
+	virtual inline bool NeedData() const					{ return false; }
+
+	/**
 	 * Return the width of the stream, in pixels.
 	 */
 	inline uint32_t GetWidth() const						{ return mOptions.width; }
