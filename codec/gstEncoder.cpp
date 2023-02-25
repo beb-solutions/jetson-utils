@@ -78,7 +78,7 @@ gstEncoder::gstEncoder( const videoOptions& options ) : videoOutput(options)
 	mPipeline     = NULL;
 	mRTSPServer   = NULL;
 	mWebRTCServer = NULL;
-	mNeedData     = true;	// set to true to start encoding when not using Open()
+	mNeedData     = false;
 
 	mBufferYUV.SetThreaded(false);
 }
