@@ -880,7 +880,8 @@ bool gstDecoder::Capture( void** output, imageFormat format, uint64_t timeout )
 	// wait until a new frame is recieved
 	if( !mBufferManager->Dequeue(output, format, timeout) )
 	{
-		LogError(LOG_GSTREAMER "gstDecoder -- failed to retrieve next image buffer\n");
+		// this is not always an error
+		//LogError(LOG_GSTREAMER "gstDecoder -- failed to retrieve next image buffer\n");
 		return false;
 	}
 	
@@ -969,9 +970,9 @@ bool gstDecoder::Open()
 		return false;
 	}
 
-	checkMsgBus();
-	usleep(100 * 1000);
-	checkMsgBus();
+	//checkMsgBus();
+	//usleep(100 * 1000);
+	//checkMsgBus();
 
 	mStreaming = true;
 	return true;
@@ -992,8 +993,8 @@ void gstDecoder::Close()
 	if( result != GST_STATE_CHANGE_SUCCESS )
 		LogError(LOG_GSTREAMER "gstDecoder -- failed to stop pipeline (error %u)\n", result);
 
-	usleep(250*1000);
-	checkMsgBus();
+	//usleep(250*1000);
+	//checkMsgBus();
 	mStreaming = false;
 	LogInfo(LOG_GSTREAMER "gstDecoder -- pipeline stopped\n");
 }
