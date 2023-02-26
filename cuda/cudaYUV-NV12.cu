@@ -30,11 +30,17 @@
 #define FIXED_POINT_MULTIPLIER          1.0f
 #define FIXED_COLOR_COMPONENT_MASK      0xffffffff
 
+#define OPTIMIZED_UCHAR4
+
 
 //-----------------------------------------------------------------------------------
 // YUV to RGB colorspace conversion
 //-----------------------------------------------------------------------------------
 static inline __device__ float clamp( float x )	{ return fminf(fmaxf(x, 0.0f), 255.0f); }
+
+#ifdef OPTIMIZED_UCHAR4
+static inline __device__ uint8_t clamp( int32_t x )	{ return (uint8_t)min(max(x >> 16, 0), 255); }
+#endif
 
 // YUV2RGB
 template<typename T>
@@ -63,15 +69,10 @@ static inline __device__ T YUV2RGB(const uint3& yuvi)
 template<typename T>
 __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
                           T* dstImage,        size_t nDestPitch,
-                          uint32_t width,     uint32_t height)
+                          uint32_t width,     uint32_t height, size_t chromaOffset)
 {
 	int x, y;
-	uint32_t yuv101010Pel[2];
-	uint32_t processingPitch = ((width) + 63) & ~63;
-	uint8_t *srcImageU8     = (uint8_t *)srcImage;
-
-	processingPitch = nSourcePitch;
-
+	
 	// Pad borders with duplicate pixels, and we multiply by 2 because we process 2 pixels per thread
 	x = blockIdx.x * (blockDim.x << 1) + (threadIdx.x << 1);
 	y = blockIdx.y *  blockDim.y       +  threadIdx.y;
@@ -82,26 +83,29 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	if( y >= height )
 		return; // y = height - 1;
 
+	uint32_t yuv101010Pel[2];
+	uint8_t *srcImageU8     = (uint8_t *)srcImage;	
+
 	// Read 2 Luma components at a time, so we don't waste processing since CbCr are decimated this way.
 	// if we move to texture we could read 4 luminance values
-	yuv101010Pel[0] = (srcImageU8[y * processingPitch + x    ]) << 2;
-	yuv101010Pel[1] = (srcImageU8[y * processingPitch + x + 1]) << 2;
+	yuv101010Pel[0] = (srcImageU8[y * nSourcePitch + x    ]) << 2;
+	yuv101010Pel[1] = (srcImageU8[y * nSourcePitch + x + 1]) << 2;
 
-	uint32_t chromaOffset    = processingPitch * height;
-	int y_chroma = y >> 1;
+	//uint32_t chromaOffset    = nSourcePitch * height;
+	//int y_chroma = y >> 1;
 
 	if (y & 1)  // odd scanline ?
 	{
 		uint32_t chromaCb;
 		uint32_t chromaCr;
 
-		chromaCb = srcImageU8[chromaOffset + y_chroma * processingPitch + x    ];
-		chromaCr = srcImageU8[chromaOffset + y_chroma * processingPitch + x + 1];
+		chromaCb = srcImageU8[chromaOffset + (y >> 1) * nSourcePitch + x    ];
+		chromaCr = srcImageU8[chromaOffset + (y >> 1) * nSourcePitch + x + 1];
 
-		if (y_chroma < ((height >> 1) - 1)) // interpolate chroma vertically
+		if ((y >> 1) < ((height >> 1) - 1)) // interpolate chroma vertically
 		{
-			chromaCb = (chromaCb + srcImageU8[chromaOffset + (y_chroma + 1) * processingPitch + x    ] + 1) >> 1;
-			chromaCr = (chromaCr + srcImageU8[chromaOffset + (y_chroma + 1) * processingPitch + x + 1] + 1) >> 1;
+			chromaCb = (chromaCb + srcImageU8[chromaOffset + ((y >> 1) + 1) * nSourcePitch + x    ] + 1) >> 1;
+			chromaCr = (chromaCr + srcImageU8[chromaOffset + ((y >> 1) + 1) * nSourcePitch + x + 1] + 1) >> 1;
 		}
 
 		yuv101010Pel[0] |= (chromaCb << (COLOR_COMPONENT_BIT_SIZE       + 2));
@@ -112,11 +116,11 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	}
 	else
 	{
-		yuv101010Pel[0] |= ((uint32_t)srcImageU8[chromaOffset + y_chroma * processingPitch + x    ] << (COLOR_COMPONENT_BIT_SIZE       + 2));
-		yuv101010Pel[0] |= ((uint32_t)srcImageU8[chromaOffset + y_chroma * processingPitch + x + 1] << ((COLOR_COMPONENT_BIT_SIZE << 1) + 2));
+		yuv101010Pel[0] |= ((uint32_t)srcImageU8[chromaOffset + (y >> 1) * nSourcePitch + x    ] << (COLOR_COMPONENT_BIT_SIZE       + 2));
+		yuv101010Pel[0] |= ((uint32_t)srcImageU8[chromaOffset + (y >> 1) * nSourcePitch + x + 1] << ((COLOR_COMPONENT_BIT_SIZE << 1) + 2));
 
-		yuv101010Pel[1] |= ((uint32_t)srcImageU8[chromaOffset + y_chroma * processingPitch + x    ] << (COLOR_COMPONENT_BIT_SIZE       + 2));
-		yuv101010Pel[1] |= ((uint32_t)srcImageU8[chromaOffset + y_chroma * processingPitch + x + 1] << ((COLOR_COMPONENT_BIT_SIZE << 1) + 2));
+		yuv101010Pel[1] |= ((uint32_t)srcImageU8[chromaOffset + (y >> 1) * nSourcePitch + x    ] << (COLOR_COMPONENT_BIT_SIZE       + 2));
+		yuv101010Pel[1] |= ((uint32_t)srcImageU8[chromaOffset + (y >> 1) * nSourcePitch + x + 1] << ((COLOR_COMPONENT_BIT_SIZE << 1) + 2));
 	}
 
 	// this steps performs the color conversion
@@ -133,6 +137,69 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	dstImage[y * width + x + 1] = YUV2RGB<T>(yuvi_1);
 }
 
+#ifdef OPTIMIZED_UCHAR4
+//-----------------------------------------------------------------------------------
+// NV12 to RGB (uchar4, optimized version)
+// It should be faster, further tests are needed
+//-----------------------------------------------------------------------------------
+__global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
+                          uchar4* dstImage,        size_t nDestPitch,
+                          uint32_t width,     uint32_t height, size_t chromaOffset)
+{
+	const int32_t x = blockIdx.x * (blockDim.x << 1) + (threadIdx.x << 1);
+	const int32_t y = blockIdx.y * (blockDim.y << 1) + (threadIdx.y << 1);
+	
+	if (x >= width)
+		return;
+
+	if (y >= height)
+		return;
+
+	int32_t chroma[4];
+
+	const int32_t n = y * nSourcePitch;
+
+	// read values	
+	uint8_t* srcImageU8 = (uint8_t*)srcImage;
+	chroma[0] = srcImageU8[n + x] << 16;
+	chroma[1] = srcImageU8[n + x + 1] << 16;
+	chroma[2] = srcImageU8[n + nSourcePitch + x] << 16;
+	chroma[3] = srcImageU8[n + nSourcePitch + x + 1] << 16;
+
+	//const uint32_t chromaOffset    = nSourcePitch * height;
+	const int32_t u = (srcImageU8[chromaOffset + (n >> 1) + x] - 128);
+	const int32_t v = (srcImageU8[chromaOffset + (n >> 1) + x + 1] - 128);
+
+	uchar4 t[4];
+	
+	t[0].x = clamp(chroma[0] + (v << 16));
+	t[0].y = clamp(chroma[0] - (u << 11) - (v << 15));
+	t[0].z = clamp(chroma[0] + (u << 17));
+	t[0].w = 255;
+
+	t[1].x = clamp(chroma[1] + (v << 16));
+	t[1].y = clamp(chroma[1] - (u << 11) - (v << 15));
+	t[1].z = clamp(chroma[1] + (u << 17));
+	t[1].w = 255;
+
+	t[2].x = clamp(chroma[2] + (v << 16));
+	t[2].y = clamp(chroma[2] - (u << 11) - (v << 15));
+	t[2].z = clamp(chroma[2] + (u << 17));
+	t[2].w = 255;
+
+	t[3].x = clamp(chroma[3] + (v << 16));
+	t[3].y = clamp(chroma[3] - (u << 11) - (v << 15));
+	t[3].z = clamp(chroma[3] + (u << 17));
+	t[3].w = 255;
+
+	// write values
+	const int32_t c1 = y * width + x;
+	dstImage[c1] = t[0];
+	dstImage[c1 + 1] = t[1];
+	dstImage[c1 + width] = t[2];
+	dstImage[c1 + width + 1] = t[3];
+}
+#endif
 
 template<typename T> 
 static cudaError_t launchNV12ToRGB( void* srcDev, T* dstDev, size_t width, size_t height )
@@ -145,14 +212,37 @@ static cudaError_t launchNV12ToRGB( void* srcDev, T* dstDev, size_t width, size_
 
 	const size_t srcPitch = width * sizeof(uint8_t);
 	const size_t dstPitch = width * sizeof(T);
+	const size_t chromaOffset = srcPitch * height;
 	
 	const dim3 blockDim(32,8,1);
 	const dim3 gridDim(iDivUp(width,blockDim.x), iDivUp(height, blockDim.y), 1);
 
-	NV12ToRGB<T><<<gridDim, blockDim>>>( (uint32_t*)srcDev, srcPitch, dstDev, dstPitch, width, height );
+	NV12ToRGB<T><<<gridDim, blockDim>>>( (uint32_t*)srcDev, srcPitch, dstDev, dstPitch, width, height, chromaOffset );
 	
 	return CUDA(cudaGetLastError());
 }
+
+#ifdef OPTIMIZED_UCHAR4
+static cudaError_t launchNV12ToRGB( void* srcDev, uchar4* dstDev, size_t width, size_t height )
+{
+	if( !srcDev || !dstDev )
+		return cudaErrorInvalidDevicePointer;
+
+	if( width == 0 || height == 0 )
+		return cudaErrorInvalidValue;
+
+	const size_t srcPitch = width * sizeof(uint8_t);
+	const size_t dstPitch = width * sizeof(uchar4);
+	const size_t chromaOffset = srcPitch * height;
+	
+	const dim3 blockDim(32, 8);
+	const dim3 gridDim(iDivUp(width, blockDim.x << 1), iDivUp(height, blockDim.y << 1));
+
+	NV12ToRGB<<<gridDim, blockDim>>>( (uint32_t*)srcDev, srcPitch, dstDev, dstPitch, width, height, chromaOffset);
+	
+	return CUDA(cudaGetLastError());
+}
+#endif
 
 // cudaNV12ToRGB (uchar3)
 cudaError_t cudaNV12ToRGB( void* srcDev, uchar3* destDev, size_t width, size_t height )
@@ -169,7 +259,11 @@ cudaError_t cudaNV12ToRGB( void* srcDev, float3* destDev, size_t width, size_t h
 // cudaNV12ToRGBA (uchar4)
 cudaError_t cudaNV12ToRGBA( void* srcDev, uchar4* destDev, size_t width, size_t height )
 {
+#ifdef OPTIMIZED_UCHAR4
+	return launchNV12ToRGB(srcDev, destDev, width, height);
+#else
 	return launchNV12ToRGB<uchar4>(srcDev, destDev, width, height);
+#endif
 }
 
 // cudaNV12ToRGBA (float4)
