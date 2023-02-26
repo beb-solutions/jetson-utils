@@ -698,7 +698,11 @@ bool gstDecoder::buildLaunchStr()
 		ss << "videorate drop-only=true max-rate=" << (int)mOptions.frameRate << " ! ";
 
 	// add the app sink
-	ss << "appsink name=mysink sync=false"; // wait-on-eos=false;
+	// sync=false is problematic with file sources (sometimes they are running too fast)
+	if( uri.protocol == "file" )
+		ss << "appsink name=mysink sync=true";
+	else
+		ss << "appsink name=mysink sync=false"; // wait-on-eos=false;
 
 	mLaunchStr = ss.str();
 
