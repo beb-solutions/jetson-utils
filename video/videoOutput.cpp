@@ -128,6 +128,10 @@ videoOutput* videoOutput::Create( const char* resource, const videoOptions& opti
 {
 	videoOptions opt = options;
 	opt.resource = resource;
+
+	const URI& uri = opt.resource;
+	opt.deviceType = options.DeviceTypeFromStr(uri.protocol.c_str());
+
 	return Create(opt);
 }
 
