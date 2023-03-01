@@ -99,6 +99,11 @@ public:
 	 */
 	inline void SetThreaded( bool threaded );
 
+	/**
+	 * Get the buffer size.
+	*/
+	inline size_t GetBufferSize() const 	{ return mBufferSize; }
+
 protected:
 
 	uint32_t mNumBuffers;

@@ -110,6 +110,8 @@ inline bool RingBuffer::Alloc( uint32_t numBuffers, size_t size, uint32_t flags 
 // Free
 inline void RingBuffer::Free()
 {
+	mBufferSize = 0;
+	
 	if( !mBuffers || mNumBuffers == 0 )
 		return;
 	
