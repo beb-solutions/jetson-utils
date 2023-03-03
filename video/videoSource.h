@@ -248,6 +248,25 @@ public:
 	inline bool IsStreaming() const	   			{ return mStreaming; }
 
 	/**
+	 * Get the user data which is (optionally) encoded in the u-plane.
+	 * Tells the buffer manager that the video frames contain user data.
+	 * This is only possible for RGBA8 conversions (uchar4).
+	 * 
+	 * The encoder of the video must encode the same length of data.
+	 * 
+	 * Attention: The data can be corrupted due to the compression losts.
+	 * Use FEC encoder on sender and FEC decoder on receive side and check the data
+	 * with a CRC/hash code.
+	 * 
+	 * @see videoOutput::SetUserData()
+	 * 
+ 	 * @param data_length length of the user data array in bytes
+	 * 
+	 * @return pointer to the retrieved user data, NULL if the size has changed or no new data available
+	*/
+	virtual void* GetUserData(size_t data_length);
+
+	/**
 	 * Return the width of the stream, in pixels.
 	 */
 	inline uint32_t GetWidth() const				{ return mOptions.width; }

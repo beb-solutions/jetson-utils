@@ -26,6 +26,10 @@
 
 #include "cudaUtility.h"
 
+#define UD_ENC_WIDTH            4          // num u-values per bit, the more values the more stability but also longer codes
+#define UD_U_SHIFT              4          // shift value for the original u-value (must be >= 2)
+#define UD_ONE_VALUE            192        // predefined one-value
+
 
 //////////////////////////////////////////////////////////////////////////////////
 /// @name YUV I420 4:2:0 planar to RGB
@@ -111,6 +115,15 @@ cudaError_t cudaRGBToI420( float3* input, void* output, size_t width, size_t hei
  * Convert an RGBA uchar4 buffer into YUV I420 planar.
  */
 cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t height );
+
+/**
+ * Convert an RGBA uchar4 buffer into YUV I420 planar. 
+ * Add additional data to the frame (in the u-plane).
+ * 
+ * data must be in mapped CPU/GPU memory.
+ * 
+ */
+cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t height, void* data, size_t data_length );
 
 /**
  * Convert an RGBA float4 buffer into YUV I420 planar.
@@ -269,6 +282,14 @@ cudaError_t cudaNV12ToRGB( void* input, float3* output, size_t width, size_t hei
  * NV12 = 8-bit Y plane followed by an interleaved U/V plane with 2x2 subsampling.
  */
 cudaError_t cudaNV12ToRGBA( void* input, uchar4* output, size_t width, size_t height );
+
+/**
+ * Convert an NV12 texture (semi-planar 4:2:0) to RGBA uchar4 format.
+ * NV12 = 8-bit Y plane followed by an interleaved U/V plane with 2x2 subsampling.
+ * 
+ * Extracts additional data from the u-plane up to data_length size.
+ */
+cudaError_t cudaNV12ToRGBA( void* input, uchar4* output, size_t width, size_t height, void* data, size_t data_length );
 
 /**
  * Convert an NV12 texture (semi-planar 4:2:0) to RGBA float4 format.

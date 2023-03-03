@@ -24,6 +24,7 @@
 #include "cudaColorspace.h"
 #include "timespec.h"
 #include "logging.h"
+#include "cudaYUV.h"
 
 
 #ifdef ENABLE_NVMM
@@ -55,6 +56,8 @@ gstBufferManager::gstBufferManager( videoOptions* options )
 #endif
 	
 	mBufferRGB.SetThreaded(false);
+	mBufferUserData.SetThreaded(false);
+	mBufferUserDataHelper.SetThreaded(false);
 }
 
 
@@ -442,19 +445,83 @@ bool gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t time
 	// perform colorspace conversion
 	void* nextRGB = mBufferRGB.Next(RingBuffer::Write);
 
-	if( CUDA_FAILED(cudaConvertColor(latestYUV, mFormatYUV, nextRGB, format, mOptions->width, mOptions->height)) )
-	{
-		LogError(LOG_GSTREAMER "gstBufferManager -- unsupported image format (%s)\n", imageFormatToStr(format));
-		LogError(LOG_GSTREAMER "                    supported formats are:\n");
-		LogError(LOG_GSTREAMER "                       * rgb8\n");		
-		LogError(LOG_GSTREAMER "                       * rgba8\n");		
-		LogError(LOG_GSTREAMER "                       * rgb32f\n");		
-		LogError(LOG_GSTREAMER "                       * rgba32f\n");
+	if (mBufferUserData.GetBufferSize() == 0) {
+		if( CUDA_FAILED(cudaConvertColor(latestYUV, mFormatYUV, nextRGB, format, mOptions->width, mOptions->height)) )
+		{
+			LogError(LOG_GSTREAMER "gstBufferManager -- unsupported image format (%s)\n", imageFormatToStr(format));
+			LogError(LOG_GSTREAMER "                    supported formats are:\n");
+			LogError(LOG_GSTREAMER "                       * rgb8\n");		
+			LogError(LOG_GSTREAMER "                       * rgba8\n");		
+			LogError(LOG_GSTREAMER "                       * rgb32f\n");		
+			LogError(LOG_GSTREAMER "                       * rgba32f\n");
 
-		return false;
+			return false;
+		}
+	} else {
+		if (!mBufferUserDataHelper.Alloc(1, (mBufferUserData.GetBufferSize() << 3) * UD_ENC_WIDTH, RingBuffer::ZeroCopy)) {
+			return false;
+		}
+
+		void* gpu_data = mBufferUserDataHelper.Next(RingBuffer::Write);
+		if( CUDA_FAILED(cudaConvertColor(latestYUV, mFormatYUV, nextRGB, format, mOptions->width, mOptions->height, gpu_data, mBufferUserDataHelper.GetBufferSize())) )
+		{
+			LogError(LOG_GSTREAMER "gstBufferManager -- unsupported image format (%s)\n", imageFormatToStr(format));
+			LogError(LOG_GSTREAMER "                    supported formats are:\n");
+			LogError(LOG_GSTREAMER "                       * rgba8\n");		
+			
+			return false;
+		}
+
+		uint8_t* bcode = (uint8_t*)gpu_data;
+		int sum = 0;
+		int num = mBufferUserDataHelper.GetBufferSize();
+		int limit = UD_ENC_WIDTH * (256 - UD_ONE_VALUE); // limit for zero/one decision
+
+		int byte = 0;
+		int bit = 0;
+
+		uint8_t* data = (uint8_t*)mBufferUserData.Next(RingBuffer::Write);
+
+		for(int i=0; i<num; i++) {
+			if (i % UD_ENC_WIDTH == 0) sum = 0;
+			sum += bcode[i];
+
+			if ( (i+1) % UD_ENC_WIDTH == 0) {
+				byte = (i / UD_ENC_WIDTH) >> 3;
+				bit = i / UD_ENC_WIDTH - (byte << 3);
+
+				if (sum > limit)
+					data[byte] |= (1 << bit); // set bit
+				else
+					data[byte] &= ~(1 << bit); // reset bit
+			}
+		}
 	}
 
 	*output = nextRGB;
 	return true;
 }
 
+
+// GetUserData
+void* gstBufferManager::GetUserData(size_t data_length) {
+	if (data_length <= 0) {
+
+		// no data requested: disable and free all buffer
+		if (mBufferUserData.GetBufferSize() > 0)
+			mBufferUserData.Free();
+
+		return NULL;
+	}
+
+	if (data_length != mBufferUserData.GetBufferSize()) {
+
+		// data length has changed: reinitialize the buffer and return no data
+		mBufferUserData.Free();
+		mBufferUserData.Alloc(1, data_length, RingBuffer::CPU);
+
+		return NULL;
+	}
+
+	return mBufferUserData.Next(RingBuffer::ReadLatestOnce);
+}

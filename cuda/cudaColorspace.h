@@ -62,6 +62,38 @@ cudaError_t cudaConvertColor( void* input, imageFormat inputFormat,
 						const float2& pixel_range=make_float2(0,255));
 
 /**
+ * Convert between two image formats using the GPU.
+ * Additional data can be encoded into the image by using the u-Plane.
+ *
+ * @see cudaConvertColor
+ *
+ * Limitations and unsupported conversions include:
+ *
+ *		- Only RGBA8 to I420 and NV12 to RGBA8 is supported
+ *
+ * @param input CUDA device pointer to the input image
+ * @param inputFormat format enum of the input image
+ * @param output CUDA device pointer to the input image
+ * @param outputFormat format enum of the output image
+ * @param width width of the input and output images (in pixels)
+ * @param height height of the input and output images (in pixels)
+ * @param data pointer to the additional data array, must be mapped CPU/GPU memory
+ * @param data_length length of the data array
+ * @param pixel_range for floating-point to 8-bit conversions, specifies the range of pixel intensities
+ *                    in the input image that get normalized to `[0,255]`.  The default input range is
+ *                    `[0,255]`, and as such no normalization occurs.  Other common pixel ranges include
+ *                    `[0,1]` and `[-1,1]`, and these pixel values would be re-scaled for `[0,255]` output.
+ *                    Note that this parameter is only used for float-to-uchar conversions where the data
+ *                    is downcast (for example, `IMAGE_RGB32F` to `IMAGE_RGB8`).
+ * @ingroup colorspace
+ */
+cudaError_t cudaConvertColor( void* input, imageFormat inputFormat,
+					     void* output, imageFormat outputFormat,
+					     size_t width, size_t height,
+						 void* data, size_t data_length,
+						 const float2& pixel_range=make_float2(0,255));
+
+/**
  * Convert between to image formats using the GPU.
  *
  * This templated overload of cudaConvertColor() supports uchar3 (`IMAGE_RGB8`), 

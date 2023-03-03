@@ -81,6 +81,7 @@ gstEncoder::gstEncoder( const videoOptions& options ) : videoOutput(options)
 	mNeedData     = false;
 
 	mBufferYUV.SetThreaded(false);
+	mBufferUserData.SetThreaded(false);
 }
 
 
@@ -419,6 +420,13 @@ bool gstEncoder::buildLaunchStr()
 		
 		if( uri.protocol == "rtp" )
 		{
+			// RTP FEC Encoder
+			if (mOptions.rtp_fec_percentage >= 0) {
+				ss << "rtpulpfecenc percentage=" << CLAMP(mOptions.rtp_fec_percentage, 0 , 100);
+				ss << " percentage-important=" <<  CLAMP(mOptions.rtp_fec_percentage_important, 0, 100);
+				ss << " pt=" << CLAMP(mOptions.rtp_fec_payload, 0, 255) << " ! ";
+			}
+
 			ss << "udpsink host=" << uri.location << " ";
 
 			if( uri.port != 0 )
@@ -699,18 +707,31 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 
 	// perform colorspace conversion
 	void* nextYUV = mBufferYUV.Next(RingBuffer::Write);
-
-	if( CUDA_FAILED(cudaConvertColor(image, format, nextYUV, IMAGE_I420, width, height)) )
-	{
-		LogError(LOG_GSTREAMER "gstEncoder::Render() -- unsupported image format (%s)\n", imageFormatToStr(format));
-		LogError(LOG_GSTREAMER "                        supported formats are:\n");
-		LogError(LOG_GSTREAMER "                            * rgb8\n");		
-		LogError(LOG_GSTREAMER "                            * rgba8\n");		
-		LogError(LOG_GSTREAMER "                            * rgb32f\n");		
-		LogError(LOG_GSTREAMER "                            * rgba32f\n");
 		
-		enc_success = false;
-		render_end();
+	if ( mBufferUserData.GetBufferSize() == 0) {
+		if( CUDA_FAILED(cudaConvertColor(image, format, nextYUV, IMAGE_I420, width, height)) )
+		{
+			LogError(LOG_GSTREAMER "gstEncoder::Render() -- cudaConvertColor: unsupported image format (%s)\n", imageFormatToStr(format));
+			LogError(LOG_GSTREAMER "                        supported formats are:\n");
+			LogError(LOG_GSTREAMER "                            * rgb8\n");		
+			LogError(LOG_GSTREAMER "                            * rgba8\n");		
+			LogError(LOG_GSTREAMER "                            * rgb32f\n");		
+			LogError(LOG_GSTREAMER "                            * rgba32f\n");
+			
+			enc_success = false;
+			render_end();
+		}
+	} else {
+		void* data = mBufferUserData.Next(RingBuffer::ReadLatest);
+		if( CUDA_FAILED(cudaConvertColor(image, format, nextYUV, IMAGE_I420, width, height, data, mBufferUserData.GetBufferSize())) )
+		{
+			LogError(LOG_GSTREAMER "gstEncoder::Render() -- cudaConvertColorCode: unsupported image format (%s)\n", imageFormatToStr(format));
+			LogError(LOG_GSTREAMER "                        supported formats are:\n");
+			LogError(LOG_GSTREAMER "                            * rgba8\n");		
+			
+			enc_success = false;
+			render_end();
+		}
 	}
 
 	CUDA(cudaDeviceSynchronize());	// TODO replace with cudaStream?
@@ -795,6 +816,21 @@ void gstEncoder::Close()
 	checkMsgBus();	
 	mStreaming = false;
 	LogInfo(LOG_GSTREAMER "gstEncoder -- pipeline stopped\n");
+}
+
+
+// SetUserData
+void gstEncoder::SetUserData(const void* data, size_t data_length) 
+{
+	if (data == NULL || data_length <= 0) {
+		mBufferUserData.Free();
+		return;
+	}
+
+	if (mBufferUserData.Alloc(1, data_length, RingBuffer::ZeroCopy)) {
+		void* buf = mBufferUserData.Next(RingBuffer::Write);
+		memcpy(buf, data, data_length);
+	}
 }
 
 

@@ -252,6 +252,12 @@ void videoOutput::SetStatus( const char* str )
 }
 
 
+void videoOutput::SetUserData(const void* data, size_t data_length)
+{
+	
+}
+
+
 // TypeToStr
 const char* videoOutput::TypeToStr( uint32_t type )
 {

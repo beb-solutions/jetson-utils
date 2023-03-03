@@ -92,6 +92,15 @@ public:
 	virtual void Close();
 
 	/**
+	 * Get the user data which is (optionally) encoded in the u-plane.
+	 * Tells the buffer manager that the video frames contain user data.
+	 * This is only possible for RGBA8 conversions (uchar4).
+	 * 
+	 * @see videoSource::GetUserData()
+	*/
+	virtual void* GetUserData(size_t data_length);
+
+	/**
 	 * Return true if End Of Stream (EOS) has been reached.
 	 * In the context of gstDecoder, EOS means that playback 
 	 * has reached the end of the file, and looping is either

@@ -95,6 +95,15 @@ public:
 	 * Get the total number of frames that have been recieved.
 	 */
 	inline uint64_t GetFrameCount() const	{ return mFrameCount; }
+
+	/**
+	 * Get the user data which is (optionally) encoded in the u-plane.
+	 * Tells the buffer manager that the video frames contain user data.
+	 * This is only possible for RGBA8 conversions (uchar4).
+	 * 
+	 * @see videoSource::GetUserData()
+	*/
+	void* GetUserData(size_t data_length);
 	
 protected:
 
@@ -105,6 +114,9 @@ protected:
 	uint64_t      mLastTimestamp;  /**< Timestamp of the latest dequeued frame */
 	Event	      mWaitEvent;  /**< Event that gets triggered when a new frame is recieved */
 	
+	RingBuffer    mBufferUserData;
+	RingBuffer    mBufferUserDataHelper;
+
 	videoOptions* mOptions;    /**< Options of the gstDecoder / gstCamera object */			
 	uint64_t	  mFrameCount; /**< Total number of frames that have been recieved */
 	bool 	      mNvmmUsed;   /**< Is NVMM memory actually used by the stream? */

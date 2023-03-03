@@ -144,6 +144,13 @@ void videoSource::Close()
 	mStreaming = false;
 }
 
+
+// GetUserData
+void* videoSource::GetUserData(size_t data_length)
+{
+	return NULL;
+}
+
 // TypeToStr
 const char* videoSource::TypeToStr( uint32_t type )
 {

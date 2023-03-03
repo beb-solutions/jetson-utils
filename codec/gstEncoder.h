@@ -98,6 +98,13 @@ public:
 	virtual inline bool NeedData() const			{ return mNeedData; }
 
 	/**
+	 * Sets the user data for the encoding. This is only possible for RGBA8 conversions (uchar4).
+	 * 
+	 * @see videoOutput::SetUserData
+	*/
+	virtual void SetUserData(const void* data, size_t data_length);
+
+	/**
 	 * Return the GStreamer pipeline object.
 	 */
 	inline GstPipeline* GetPipeline() const			{ return GST_PIPELINE(mPipeline); }
@@ -169,6 +176,8 @@ protected:
 	
 	RTSPServer*   mRTSPServer;
 	WebRTCServer* mWebRTCServer;
+
+	RingBuffer  mBufferUserData;
 };
  
  

@@ -236,6 +236,24 @@ public:
 	virtual inline bool NeedData() const					{ return false; }
 
 	/**
+	 * Sets the user data for the encoding. This is only possible for RGBA8 conversions (uchar4).
+	 * 
+	 * Attention: Tthe data can be corrupted due to the compression losts.
+	 * Use FEC encoder on sender and FEC decoder on receive side and check the data
+	 * with a CRC/hash code.
+	 * 
+	 * The decoder of the video must request the same length of data.
+	 * 
+	 * Attention: The data can be corrupted due to the compression losts.
+	 * Use FEC encoder on sender and FEC decoder on receive side and check the data
+	 * with a CRC/hash code.
+	 * 
+	 * @param data pointer to the user data array
+ 	 * @param data_length length of the user data array in bytes
+	*/
+	virtual void SetUserData(const void* data, size_t data_length);
+
+	/**
 	 * Return the width of the stream, in pixels.
 	 */
 	inline uint32_t GetWidth() const						{ return mOptions.width; }

@@ -561,22 +561,33 @@ bool gstDecoder::buildLaunchStr()
 		ss << "udpsrc port=" << uri.port;
 		ss << " multicast-group=" << uri.location << " auto-multicast=true";
 
-		ss << " caps=\"" << "application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)";
+		// rtpstorage, jitterbuffer and rtp fec when needed
+		std::ostringstream rtpfec;
 		
+		if (mOptions.latency == 0) {
+			ss << " caps=\"" << "application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)";
+		} else {
+			ss << " caps=\"application/x-rtp, payload=96, clock-rate=(int)90000\" !";
+			ss << " rtpstorage size-time=" << 1200000 * mOptions.latency; // [ns] + 20%
+			ss << " ! rtpssrcdemux ! application/x-rtp, payload=96, clock-rate=90000, media=video, encoding-name=";
+
+			rtpfec << "rtpjitterbuffer do-lost=1 latency=" << mOptions.latency;
+			rtpfec << " ! rtpulpfecdec pt=" << mOptions.rtp_fec_payload << " ! ";
+		}
 		if( mOptions.codec == videoOptions::CODEC_H264 )
-			ss << "H264\" ! rtph264depay ! ";
+			ss << "H264\" ! " << rtpfec.str() << "rtph264depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_H265 )
-			ss << "H265\" ! rtph265depay ! ";
+			ss << "H265 ! " << rtpfec.str() << "rtph265depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_VP8 )
-			ss << "VP8\" ! rtpvp8depay ! ";
+			ss << "VP8\" ! " << rtpfec.str() << "rtpvp8depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_VP9 )
-			ss << "VP9\" ! rtpvp9depay ! ";
+			ss << "VP9\" ! " << rtpfec.str() << "rtpvp9depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_MPEG2 )
-			ss << "MP2T\" ! rtpmp2tdepay ! ";		// MP2T-ES
+			ss << "MP2T\" ! " << rtpfec.str() << "rtpmp2tdepay ! ";		// MP2T-ES
 		else if( mOptions.codec == videoOptions::CODEC_MPEG4 )
-			ss << "MP4V-ES\" ! rtpmp4vdepay ! ";	// MPEG4-GENERIC\" ! rtpmp4gdepay
+			ss << "MP4V-ES\" ! " << rtpfec.str() << "rtpmp4vdepay ! ";	// MPEG4-GENERIC\" ! rtpmp4gdepay
 		else if( mOptions.codec == videoOptions::CODEC_MJPEG )
-			ss << "JPEG\" ! rtpjpegdepay ! ";
+			ss << "JPEG\" ! " << rtpfec.str() << "rtpjpegdepay ! ";
 
 		if( mOptions.codecType != videoOptions::CODEC_V4L2 )
 			ss << parser;
@@ -1001,6 +1012,13 @@ void gstDecoder::Close()
 	//checkMsgBus();
 	mStreaming = false;
 	LogInfo(LOG_GSTREAMER "gstDecoder -- pipeline stopped\n");
+}
+
+
+// GetUserData
+void* gstDecoder::GetUserData(size_t data_length)
+{
+	return mBufferManager->GetUserData(data_length);
 }
 
 

@@ -23,8 +23,6 @@
 #include "cudaYUV.h"
 #include "cudaVector.h"
 
-#define OPTIMIZED_RGBToYV12
-
 //-----------------------------------------------------------------------------------
 // YUV to RGB colorspace conversion
 //-----------------------------------------------------------------------------------
@@ -186,66 +184,8 @@ inline __device__ void rgb_to_yuv(const uint8_t r, const uint8_t g, const uint8_
 	v = static_cast<uint8_t>(((int)(50 * r) - (int)(42 * g) - (int)(8 * b) + 12800) / 100);
 }
 
-#ifndef OPTIMIZED_RGBToYV12
 template <typename T, bool formatYV12>
-__global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPitch, int width, int height )
-{
-	const int x = (blockIdx.x * blockDim.x + threadIdx.x) * 2;
-	const int y = (blockIdx.y * blockDim.y + threadIdx.y) * 2;
-
-	const int x1 = x + 1;
-	const int y1 = y + 1;
-
-	if( x1 >= width || y1 >= height )
-		return;
-
-	const int planeSize = height * dstPitch;
-	
-	uint8_t* y_plane = dst;
-	uint8_t* u_plane;
-	uint8_t* v_plane;
-
-	if( formatYV12 )
-	{
-		u_plane = y_plane + planeSize;
-		v_plane = u_plane + (planeSize / 4);	// size of U & V planes is 25% of Y plane
-	}
-	else
-	{
-		v_plane = y_plane + planeSize;		// in I420, order of U & V planes is reversed
-		u_plane = v_plane + (planeSize / 4);
-	}
-
-	T px;
-	uint8_t y_val, u_val, v_val;
-
-	px = src[y * srcAlignedWidth + x];
-	rgb_to_y(px.x, px.y, px.z, y_val);
-	y_plane[y * dstPitch + x] = y_val;
-
-	px = src[y * srcAlignedWidth + x1];
-	rgb_to_y(px.x, px.y, px.z, y_val);
-	y_plane[y * dstPitch + x1] = y_val;
-
-	px = src[y1 * srcAlignedWidth + x];
-	rgb_to_y(px.x, px.y, px.z, y_val);
-	y_plane[y1 * dstPitch + x] = y_val;
-	
-	px = src[y1 * srcAlignedWidth + x1];
-	rgb_to_yuv(px.x, px.y, px.z, y_val, u_val, v_val);
-	y_plane[y1 * dstPitch + x1] = y_val;
-
-	const int uvPitch = dstPitch / 2;
-	const int uvIndex = (y / 2) * uvPitch + (x / 2);
-
-	u_plane[uvIndex] = u_val;
-	v_plane[uvIndex] = v_val;
-}
-
-#else
-// optimized version, need further tests
-template <typename T, bool formatYV12>
-__global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPitch, int width, int height, int planeSize )
+__global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPitch, int width, int height, int planeSize, void* data, size_t data_length )
 {
 	const int x = blockIdx.x * (blockDim.x << 1) + (threadIdx.x << 1);
 	const int y = blockIdx.y * (blockDim.y << 1) + (threadIdx.y << 1);
@@ -271,6 +211,9 @@ __global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPit
 		u_plane = v_plane + (planeSize >> 2);
 	}
 
+	const int uvPitch = dstPitch >> 1;
+	const int uvIndex = (y >> 1) * uvPitch + (x >> 1);
+
 	T px;
 	uint8_t y_val, u_val, v_val;
 
@@ -290,13 +233,25 @@ __global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPit
 	rgb_to_yuv(px.x, px.y, px.z, y_val, u_val, v_val);
 	y_plane[y1 * dstPitch + x1] = y_val;
 
-	const int uvPitch = dstPitch >> 1;
-	const int uvIndex = (y >> 1) * uvPitch + (x >> 1);
-
-	u_plane[uvIndex] = u_val;
 	v_plane[uvIndex] = v_val;
+
+	if (data && data_length > 0) {
+		uint32_t bit = ((y >> 1) * width + (x >> 1)) / UD_ENC_WIDTH;
+		if (bit < (data_length << 3)) {
+			uint8_t* dat = (uint8_t*)data;
+
+			uint32_t byte = bit >> 3;
+			bit = bit - (byte << 3);
+
+			if (dat[byte] & (1 << bit)) // check bit
+				u_plane[uvIndex] = (u_val >> UD_U_SHIFT) + UD_ONE_VALUE;	// set bit
+			else
+				u_plane[uvIndex] = u_val >> UD_U_SHIFT; // reset bit
+		} else
+			u_plane[uvIndex] = u_val;
+	} else
+		u_plane[uvIndex] = u_val;
 } 
-#endif
 
 template<typename T, bool formatYV12>
 static cudaError_t launchRGBTo420( T* input, size_t inputPitch, void* output, size_t outputPitch, size_t width, size_t height)
@@ -308,12 +263,26 @@ static cudaError_t launchRGBTo420( T* input, size_t inputPitch, void* output, si
 	const dim3 grid(iDivUp(width, block.x << 1), iDivUp(height, block.y << 1));
 
 	const int inputAlignedWidth = inputPitch / sizeof(T);
-#ifdef OPTIMIZED_RGBToYV12
+
 	const int planeSize = height * outputPitch;
-	RGBToYV12<T, formatYV12><<<grid, block>>>(input, inputAlignedWidth, (uint8_t*)output, outputPitch, width, height, planeSize);
-#else
-	RGBToYV12<T, formatYV12><<<grid, block>>>(input, inputAlignedWidth, (uint8_t*)output, outputPitch, width, height);
-#endif
+	RGBToYV12<T, formatYV12><<<grid, block>>>(input, inputAlignedWidth, (uint8_t*)output, outputPitch, width, height, planeSize, NULL, 0);
+
+	return CUDA(cudaGetLastError());
+}
+
+template<typename T, bool formatYV12>
+static cudaError_t launchRGBTo420( T* input, size_t inputPitch, void* output, size_t outputPitch, size_t width, size_t height, void* data, size_t data_length)
+{
+	if( !input || !inputPitch || !output || !outputPitch || !width || !height )
+		return cudaErrorInvalidValue;
+
+	const dim3 block(32, 8);
+	const dim3 grid(iDivUp(width, block.x << 1), iDivUp(height, block.y << 1));
+
+	const int inputAlignedWidth = inputPitch / sizeof(T);
+	const int planeSize = height * outputPitch;
+
+	RGBToYV12<T, formatYV12><<<grid, block>>>(input, inputAlignedWidth, (uint8_t*)output, outputPitch, width, height, planeSize, data, data_length);
 
 	return CUDA(cudaGetLastError());
 }
@@ -353,6 +322,18 @@ cudaError_t cudaRGBAToI420( uchar4* input, size_t inputPitch, void* output, size
 cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t height )
 {
 	return cudaRGBAToI420( input, width * sizeof(uchar4), output, width * sizeof(uint8_t), width, height );
+}
+
+// cudaRGBAToI420 (uchar4)
+cudaError_t cudaRGBAToI420( uchar4* input, size_t inputPitch, void* output, size_t outputPitch, size_t width, size_t height, void* data, size_t data_length )
+{
+	return launchRGBTo420<uchar4,true>( input, inputPitch, output, outputPitch, width, height, data, data_length );
+}
+
+// cudaRGBAToI420 (uchar4)
+cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t height, void* data, size_t data_length )
+{
+	return cudaRGBAToI420( input, width * sizeof(uchar4), output, width * sizeof(uint8_t), width, height, data, data_length );
 }
 
 // cudaRGBAToI420 (float4)

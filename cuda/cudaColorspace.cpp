@@ -29,6 +29,27 @@
 
 #include "logging.h"
 
+// cudaConvertColor with user data
+cudaError_t cudaConvertColor( void* input, imageFormat inputFormat,
+					     void* output, imageFormat outputFormat,
+					     size_t width, size_t height,
+						 void* data, size_t data_length,
+						 const float2& pixel_range)
+{
+	if( inputFormat == IMAGE_RGBA8 )
+	{
+		if( outputFormat == IMAGE_I420 )
+			return CUDA(cudaRGBAToI420((uchar4*)input, output, width, height, data, data_length));
+	}
+	else if( inputFormat == IMAGE_NV12 )
+	{
+		if( outputFormat == IMAGE_RGBA8 )
+			return CUDA(cudaNV12ToRGBA(input, (uchar4*)output, width, height, data, data_length));
+	}
+
+	LogError(LOG_CUDA "cudaConvertColor() -- invalid input/output format combination (%s -> %s)\n", imageFormatToStr(inputFormat), imageFormatToStr(outputFormat));
+	return cudaErrorInvalidValue;
+}
 
 // cudaConvertColor
 cudaError_t cudaConvertColor( void* input, imageFormat inputFormat,
@@ -341,7 +362,7 @@ cudaError_t cudaConvertColor( void* input, imageFormat inputFormat,
 			return CUDA(cudaBayerToRGBA((uint8_t*)input, (uchar3*)output, width, height, inputFormat));
 	}
 
-	LogError(LOG_CUDA "cudaColorConvert() -- invalid input/output format combination (%s -> %s)\n", imageFormatToStr(inputFormat), imageFormatToStr(outputFormat));
+	LogError(LOG_CUDA "cudaConvertColor() -- invalid input/output format combination (%s -> %s)\n", imageFormatToStr(inputFormat), imageFormatToStr(outputFormat));
 	return cudaErrorInvalidValue;
 }
 
