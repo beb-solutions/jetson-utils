@@ -57,7 +57,8 @@ RingBuffer::~RingBuffer()
 // Alloc
 inline bool RingBuffer::Alloc( uint32_t numBuffers, size_t size, uint32_t flags )
 {
-	if( numBuffers == mNumBuffers && size <= mBufferSize && (flags & ZeroCopy) == (mFlags & ZeroCopy) )
+	if( numBuffers == mNumBuffers && size <= mBufferSize && 
+		(flags & ZeroCopy) == (mFlags & ZeroCopy) && (flags & CPU) == (mFlags & CPU) )
 		return true;
 	
 	Free();
@@ -89,10 +90,12 @@ inline bool RingBuffer::Alloc( uint32_t numBuffers, size_t size, uint32_t flags 
 		{
 			mBuffers[n] = malloc(size);
 			
-			if( CUDA_FAILED(cudaMalloc(&mBuffers[n], size)) )
-			{
-				LogError(LOG_CUDA "RingBuffer -- failed to allocate CUDA buffer of %zu bytes\n", size);
-				return false;
+			if( !(flags & CPU) ) {
+				if( CUDA_FAILED(cudaMalloc(&mBuffers[n], size)) )
+				{
+					LogError(LOG_CUDA "RingBuffer -- failed to allocate CUDA buffer of %zu bytes\n", size);
+					return false;
+				}
 			}
 		}
 	}
@@ -119,8 +122,10 @@ inline void RingBuffer::Free()
 	{
 		if( mFlags & ZeroCopy )
 			CUDA(cudaFreeHost(mBuffers[n]));
-		else
+		else if ( !(mFlags & CPU) )
 			CUDA(cudaFree(mBuffers[n]));
+		else
+			free(mBuffers[n]);
 		
 		mBuffers[n] = NULL;
 	}

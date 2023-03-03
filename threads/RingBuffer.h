@@ -45,6 +45,7 @@ public:
 		Write          = (1 << 4),				/**< Write the next buffer. */
 		Threaded       = (1 << 5),      			/**< Buffers should be thread-safe (enabled by default). */
 		ZeroCopy       = (1 << 6),				/**< Buffers should be allocated in mapped CPU/GPU zeroCopy memory (otherwise GPU only) */
+		CPU            = (1 << 7),				/**< Buffers should be allocated in CPU memory only (not if ZeroCopy) */
 	};
 	
 	/**
