@@ -44,6 +44,9 @@ videoOptions::videoOptions()
 	flipMethod  = FLIP_DEFAULT;
 	codec       = CODEC_UNKNOWN;
 	codecType   = gst_default_codec();
+	rtp_fec_percentage = -1;
+	rtp_fec_percentage_important = 0;
+	rtp_fec_payload = 122;
 }
 
 

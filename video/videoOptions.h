@@ -123,8 +123,51 @@ public:
 	 * The default setting is 10ms (which is lower than GStreamer's default settings).
 	 * If you have connection/buffering problems, try increasing the latency setting.
 	 * It can be set from the command line using `--input-latency=N` or `--output-latency=N`
+	 * 
+	 * @note This value also adjusts the rtpjitterbuffer latency for FEC encoded rtp streams.
+	 * The decoder must be set to a value > 0 to decde FEC encoded streams.
+	 * The rtp_fec_payload must match the payload on the encoder side.
+	 * 
+	 * @see rtp_fec_percentage
+	 * @see rtp_fec_payload
 	 */
 	int latency;
+
+	/**
+	 * RTP FEC Encoder FEC overhead percentage for the whole stream
+	 * Default value is -1 (=RTP FEC disabled).
+	 * To enable FEC encoder set the value between 0 and 100 %
+	 * Range: 0..100
+	 * 
+	 * @note The receiver must support and activate the rtpjitterbuffer-buffer, 
+	 * 		 otherwise there will be errors in the decoded data.
+	 * 
+	 * @see rtp_fec_percentage_important
+	 * @see rtp_fec_payload
+	 * @see latency
+	*/
+	int rtp_fec_percentage;
+
+	/**
+	 * RTP FEC Encoder FEC overhead percentage for important packets
+	 * Default value is 0 %.
+	 * Range: 0..100
+	 * 
+	 * @see rtp_fec_percentage
+	 * @see rtp_fec_payload
+	*/
+	int rtp_fec_percentage_important;
+
+	/**
+	 * RTP FEC Encoder/Decoder payload
+	 * Default value is 122
+	 * Range: 0..255
+	 * 
+	 * @see rtp_fec_percentage
+	 * @see rtp_fec_percentage_important
+	 * @see latency
+	*/
+	int rtp_fec_payload;
 
 	/**
 	 * Device interface types.
