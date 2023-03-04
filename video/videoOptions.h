@@ -125,7 +125,7 @@ public:
 	 * It can be set from the command line using `--input-latency=N` or `--output-latency=N`
 	 * 
 	 * @note This value also adjusts the rtpjitterbuffer latency for FEC encoded rtp streams.
-	 * The decoder must be set to a value > 0 to decde FEC encoded streams.
+	 * The decoder must be set to a value > 0 to decode FEC encoded streams.
 	 * The rtp_fec_payload must match the payload on the encoder side.
 	 * 
 	 * @see rtp_fec_percentage
