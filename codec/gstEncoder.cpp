@@ -244,14 +244,14 @@ bool gstEncoder::init()
 	if( !gstreamerInit() )
 	{
 		LogError(LOG_GSTREAMER "failed to initialize gstreamer API\n");
-		return NULL;
+		return false;
 	}
 
 	// create GStreamer pipeline
 	if( !initPipeline() )
 	{
 		LogError(LOG_GSTREAMER "failed to create encoder pipeline\n");
-		return NULL;
+		return false;
 	}
 
 	// create servers for RTSP/WebRTC streams
