@@ -244,10 +244,6 @@ public:
 	 * 
 	 * The decoder of the video must request the same length of data.
 	 * 
-	 * Attention: The data can be corrupted due to the compression losts.
-	 * Use FEC encoder on sender and FEC decoder on receive side and check the data
-	 * with a CRC/hash code.
-	 * 
 	 * @param data pointer to the user data array
  	 * @param data_length length of the user data array in bytes
 	*/
