@@ -185,13 +185,13 @@ inline __device__ void rgb_to_yuv(const uint8_t r, const uint8_t g, const uint8_
 }
 
 template <typename T, bool formatYV12>
-__global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPitch, int width, int height, int planeSize, void* data, size_t data_length )
+__global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPitch, int width, int height, int planeSize, void* data, size_t data_length, size_t flip )
 {
 	const int x = blockIdx.x * (blockDim.x << 1) + (threadIdx.x << 1);
-	const int y = blockIdx.y * (blockDim.y << 1) + (threadIdx.y << 1);
+	int y = blockIdx.y * (blockDim.y << 1) + (threadIdx.y << 1);
 
 	const int x1 = x + 1;
-	const int y1 = y + 1;
+	int y1 = y + 1;
 
 	if( x1 >= width || y1 >= height )
 		return;
@@ -217,21 +217,41 @@ __global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPit
 	T px;
 	uint8_t y_val, u_val, v_val;
 
-	px = src[y * srcAlignedWidth + x];
-	rgb_to_y(px.x, px.y, px.z, y_val);
-	y_plane[y * dstPitch + x] = y_val;
+	if (!flip) {
+		px = src[y * srcAlignedWidth + x];
+		rgb_to_y(px.x, px.y, px.z, y_val);
+		y_plane[y * dstPitch + x] = y_val;
 
-	px = src[y * srcAlignedWidth + x1];
-	rgb_to_y(px.x, px.y, px.z, y_val);
-	y_plane[y * dstPitch + x1] = y_val;
+		px = src[y * srcAlignedWidth + x1];
+		rgb_to_y(px.x, px.y, px.z, y_val);
+		y_plane[y * dstPitch + x1] = y_val;
 
-	px = src[y1 * srcAlignedWidth + x];
-	rgb_to_y(px.x, px.y, px.z, y_val);
-	y_plane[y1 * dstPitch + x] = y_val;
-	
-	px = src[y1 * srcAlignedWidth + x1];
-	rgb_to_yuv(px.x, px.y, px.z, y_val, u_val, v_val);
-	y_plane[y1 * dstPitch + x1] = y_val;
+		px = src[y1 * srcAlignedWidth + x];
+		rgb_to_y(px.x, px.y, px.z, y_val);
+		y_plane[y1 * dstPitch + x] = y_val;
+		
+		px = src[y1 * srcAlignedWidth + x1];
+		rgb_to_yuv(px.x, px.y, px.z, y_val, u_val, v_val);
+		y_plane[y1 * dstPitch + x1] = y_val;
+	} else {
+		px = src[(height - y - 1) * srcAlignedWidth + x];
+		rgb_to_y(px.x, px.y, px.z, y_val);
+		y_plane[y * dstPitch + x] = y_val;
+
+		px = src[(height - y - 1) * srcAlignedWidth + x1];
+		rgb_to_y(px.x, px.y, px.z, y_val);
+		y_plane[y * dstPitch + x1] = y_val;
+
+		px = src[(height - y1 - 1) * srcAlignedWidth + x];
+		rgb_to_y(px.x, px.y, px.z, y_val);
+		y_plane[y1 * dstPitch + x] = y_val;
+		
+		px = src[(height - y1 - 1) * srcAlignedWidth + x1];
+		rgb_to_yuv(px.x, px.y, px.z, y_val, u_val, v_val);
+		y_plane[y1 * dstPitch + x1] = y_val;
+
+		y = height - y - 1;
+	}
 
 	v_plane[uvIndex] = v_val;
 
@@ -265,13 +285,13 @@ static cudaError_t launchRGBTo420( T* input, size_t inputPitch, void* output, si
 	const int inputAlignedWidth = inputPitch / sizeof(T);
 
 	const int planeSize = height * outputPitch;
-	RGBToYV12<T, formatYV12><<<grid, block>>>(input, inputAlignedWidth, (uint8_t*)output, outputPitch, width, height, planeSize, NULL, 0);
+	RGBToYV12<T, formatYV12><<<grid, block>>>(input, inputAlignedWidth, (uint8_t*)output, outputPitch, width, height, planeSize, NULL, 0, 0);
 
 	return CUDA(cudaGetLastError());
 }
 
 template<typename T, bool formatYV12>
-static cudaError_t launchRGBTo420( T* input, size_t inputPitch, void* output, size_t outputPitch, size_t width, size_t height, void* data, size_t data_length)
+static cudaError_t launchRGBTo420( T* input, size_t inputPitch, void* output, size_t outputPitch, size_t width, size_t height, void* data, size_t data_length, size_t flip)
 {
 	if( !input || !inputPitch || !output || !outputPitch || !width || !height )
 		return cudaErrorInvalidValue;
@@ -282,7 +302,7 @@ static cudaError_t launchRGBTo420( T* input, size_t inputPitch, void* output, si
 	const int inputAlignedWidth = inputPitch / sizeof(T);
 	const int planeSize = height * outputPitch;
 
-	RGBToYV12<T, formatYV12><<<grid, block>>>(input, inputAlignedWidth, (uint8_t*)output, outputPitch, width, height, planeSize, data, data_length);
+	RGBToYV12<T, formatYV12><<<grid, block>>>(input, inputAlignedWidth, (uint8_t*)output, outputPitch, width, height, planeSize, data, data_length, flip);
 
 	return CUDA(cudaGetLastError());
 }
@@ -325,15 +345,15 @@ cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t he
 }
 
 // cudaRGBAToI420 (uchar4)
-cudaError_t cudaRGBAToI420( uchar4* input, size_t inputPitch, void* output, size_t outputPitch, size_t width, size_t height, void* data, size_t data_length )
+cudaError_t cudaRGBAToI420( uchar4* input, size_t inputPitch, void* output, size_t outputPitch, size_t width, size_t height, void* data, size_t data_length, size_t flip )
 {
-	return launchRGBTo420<uchar4,true>( input, inputPitch, output, outputPitch, width, height, data, data_length );
+	return launchRGBTo420<uchar4,true>( input, inputPitch, output, outputPitch, width, height, data, data_length, flip );
 }
 
 // cudaRGBAToI420 (uchar4)
-cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t height, void* data, size_t data_length )
+cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t height, void* data, size_t data_length, size_t flip )
 {
-	return cudaRGBAToI420( input, width * sizeof(uchar4), output, width * sizeof(uint8_t), width, height, data, data_length );
+	return cudaRGBAToI420( input, width * sizeof(uchar4), output, width * sizeof(uint8_t), width, height, data, data_length, flip );
 }
 
 // cudaRGBAToI420 (float4)

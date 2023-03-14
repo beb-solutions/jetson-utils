@@ -463,7 +463,7 @@ bool gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t time
 		}
 
 		void* gpu_data = mBufferUserDataHelper.Next(RingBuffer::Write);
-		if( CUDA_FAILED(cudaConvertColor(latestYUV, mFormatYUV, nextRGB, format, mOptions->width, mOptions->height, gpu_data, mBufferUserDataHelper.GetBufferSize())) )
+		if( CUDA_FAILED(cudaConvertColor(latestYUV, mFormatYUV, nextRGB, format, mOptions->width, mOptions->height, gpu_data, mBufferUserDataHelper.GetBufferSize(), 0)) )
 		{
 			LogError(LOG_GSTREAMER "gstBufferManager -- unsupported image format (%s)\n", imageFormatToStr(format));
 			LogError(LOG_GSTREAMER "                    supported formats are:\n");

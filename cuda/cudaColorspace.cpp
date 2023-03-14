@@ -34,12 +34,13 @@ cudaError_t cudaConvertColor( void* input, imageFormat inputFormat,
 					     void* output, imageFormat outputFormat,
 					     size_t width, size_t height,
 						 void* data, size_t data_length,
+						 size_t flip,
 						 const float2& pixel_range)
 {
 	if( inputFormat == IMAGE_RGBA8 )
 	{
 		if( outputFormat == IMAGE_I420 )
-			return CUDA(cudaRGBAToI420((uchar4*)input, output, width, height, data, data_length));
+			return CUDA(cudaRGBAToI420((uchar4*)input, output, width, height, data, data_length, flip));
 	}
 	else if( inputFormat == IMAGE_NV12 )
 	{

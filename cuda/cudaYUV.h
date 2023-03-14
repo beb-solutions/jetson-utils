@@ -120,10 +120,11 @@ cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t he
  * Convert an RGBA uchar4 buffer into YUV I420 planar. 
  * Add additional data to the frame (in the u-plane).
  * 
- * data must be in mapped CPU/GPU memory.
+ * @param data must be in mapped CPU/GPU memory.
+ * @param flip if 1 the image will be flipped vertical
  * 
  */
-cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t height, void* data, size_t data_length );
+cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t height, void* data, size_t data_length, size_t flip );
 
 /**
  * Convert an RGBA float4 buffer into YUV I420 planar.
