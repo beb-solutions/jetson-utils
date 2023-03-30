@@ -111,6 +111,7 @@ protected:
 	RingBuffer    mBufferYUV;  /**< Ringbuffer of CPU-based YUV frames (non-NVMM) that come from appsink */
 	RingBuffer    mTimestamps; /**< Ringbuffer of timestamps that come from appsink */
 	RingBuffer    mBufferRGB;  /**< Ringbuffer of frames that have been converted to RGB colorspace */
+	RingBuffer	  mBufferWarpRGB; /**< Ringbuffer of warp corrected frames */
 	uint64_t      mLastTimestamp;  /**< Timestamp of the latest dequeued frame */
 	Event	      mWaitEvent;  /**< Event that gets triggered when a new frame is recieved */
 	

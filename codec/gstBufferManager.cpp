@@ -25,6 +25,7 @@
 #include "timespec.h"
 #include "logging.h"
 #include "cudaYUV.h"
+#include "cudaWarp.h"
 
 
 #ifdef ENABLE_NVMM
@@ -56,6 +57,7 @@ gstBufferManager::gstBufferManager( videoOptions* options )
 #endif
 	
 	mBufferRGB.SetThreaded(false);
+	mBufferWarpRGB.SetThreaded(false);
 	mBufferUserData.SetThreaded(false);
 	mBufferUserDataHelper.SetThreaded(false);
 }
@@ -498,7 +500,28 @@ bool gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t time
 		}
 	}
 
+#if 0
+	if( !mBufferWarpRGB.Alloc(mOptions->numBuffers, rgbBufferSize, mOptions->zeroCopy ? RingBuffer::ZeroCopy : 0) )
+	{
+		LogError(LOG_GSTREAMER "gstBufferManager -- failed to allocate %u buffers for warp conversion (%zu bytes each)\n", mOptions->numBuffers, rgbBufferSize);
+		return false;
+	}
+	
+	// perform fisheye conversion
+	void* warpRGB = mBufferWarpRGB.Next(RingBuffer::Write);
+
+	// test fisheye
+	if ( CUDA_FAILED(cudaWarpFisheye((uchar4*)nextRGB, (uchar4*)warpRGB, mOptions->width, mOptions->height, 0.95f)) ) {
+		LogError(LOG_GSTREAMER "gstBufferManager -- failed to convert fisheye");
+		return false;
+	}
+
+	*output = warpRGB;
+#else
 	*output = nextRGB;
+#endif
+	
+
 	return true;
 }
 
