@@ -588,7 +588,7 @@ bool gstDecoder::buildLaunchStr()
 		std::ostringstream rtpfec;
 		
 		if (mOptions.latency == 0) {
-			ss << " caps=\"" << "application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)";
+			ss << " caps=\"application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)";
 		} else {
 			ss << " caps=\"application/x-rtp, payload=96, clock-rate=(int)90000\" !";
 			ss << " rtpstorage size-time=" << 1200000 * mOptions.latency; // [ns] + 20%
@@ -600,7 +600,7 @@ bool gstDecoder::buildLaunchStr()
 		if( mOptions.codec == videoOptions::CODEC_H264 )
 			ss << "H264\" ! " << rtpfec.str() << "rtph264depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_H265 )
-			ss << "H265 ! " << rtpfec.str() << "rtph265depay ! ";
+			ss << "H265\" ! " << rtpfec.str() << "rtph265depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_VP8 )
 			ss << "VP8\" ! " << rtpfec.str() << "rtpvp8depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_VP9 )
