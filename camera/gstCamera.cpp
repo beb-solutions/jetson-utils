@@ -691,7 +691,8 @@ bool gstCamera::Capture( void** output, imageFormat format, uint64_t timeout )
 	// wait until a new frame is recieved
 	if( !mBufferManager->Dequeue(output, format, timeout) )
 	{
-		LogError(LOG_GSTREAMER "gstDecoder -- failed to retrieve next image buffer\n");
+		// this is not always an error
+		//LogError(LOG_GSTREAMER "gstDecoder -- failed to retrieve next image buffer\n");
 		return false;
 	}
 
