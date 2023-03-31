@@ -578,7 +578,11 @@ videoOptions::CodecType gst_default_codec()
 #if NV_TENSORRT_MAJOR > 8 || (NV_TENSORRT_MAJOR == 8 && NV_TENSORRT_MINOR >= 4)
 	return videoOptions::CODEC_V4L2;	// JetPack 5
 #else
-	return videoOptions::CODEC_OMX;	// JetPack 4
+	#if GST_CHECK_VERSION(1,0,0)	
+		return videoOptions::CODEC_V4L2;	// JetPack 4, but newer gst version
+	#else
+		return videoOptions::CODEC_OMX;	// old gst version
+	#endif
 #endif
 #elif defined(__x86_64__) || defined(__amd64__)
 	return videoOptions::CODEC_CPU;	// x86

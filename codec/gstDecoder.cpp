@@ -676,8 +676,11 @@ bool gstDecoder::buildLaunchStr()
 	// add the decoder
 	ss << decoder << " name=decoder ";
 	
-	if( mOptions.codecType == videoOptions::CODEC_V4L2 && mOptions.codec != videoOptions::CODEC_MJPEG ) {
-		ss << "enable-max-performance=1 ";
+	if( (mOptions.codecType == videoOptions::CODEC_OMX || mOptions.codecType == videoOptions::CODEC_V4L2)
+		&& mOptions.codec != videoOptions::CODEC_MJPEG ) {
+		
+		if (mOptions.codecType != videoOptions::CODEC_OMX)
+			ss << "enable-max-performance=1 ";
 
 		if ( mOptions.deviceType == videoOptions::DEVICE_IP )
 			ss << "disable-dpb=1 ";
