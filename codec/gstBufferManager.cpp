@@ -507,12 +507,17 @@ bool gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t time
 		return false;
 	}
 	
-	// perform fisheye conversion
+	// perform warp
 	void* warpRGB = mBufferWarpRGB.Next(RingBuffer::Write);
 
-	// test fisheye
-	if ( CUDA_FAILED(cudaWarpFisheye((uchar4*)nextRGB, (uchar4*)warpRGB, mOptions->width, mOptions->height, 0.95f)) ) {
-		LogError(LOG_GSTREAMER "gstBufferManager -- failed to convert fisheye");
+	// test warp
+	float2 focal = make_float2(mOptions->width/2.f, mOptions->height/2.f);
+	float2 principal = make_float2(mOptions->width/2.f, mOptions->height/2.f);
+	float4 d = make_float4(1.f, 1.0f, 0.f, 0.f);
+
+	if ( CUDA_FAILED(cudaWarpIntrinsic((uchar4*)nextRGB,(uchar4*)warpRGB, mOptions->width, mOptions->height, focal, principal, d))) {
+	//if ( CUDA_FAILED(cudaWarpFisheye((uchar4*)nextRGB, (uchar4*)warpRGB, mOptions->width, mOptions->height, 1.0f)) ) {
+		LogError(LOG_GSTREAMER "gstBufferManager -- failed to warp");
 		return false;
 	}
 
