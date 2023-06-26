@@ -740,11 +740,10 @@ bool gstDecoder::buildLaunchStr()
 		ss << "videorate drop-only=true max-rate=" << (int)mOptions.frameRate << " ! ";
 
 	// add the app sink
-	// sync=false is problematic with file sources (sometimes they are running too fast)
-	if( uri.protocol == "file" )
-		ss << "appsink name=mysink sync=true";
-	else
-		ss << "appsink name=mysink sync=false"; // wait-on-eos=false;
+	ss << "appsink name=mysink";
+
+	if( uri.protocol != "file" )
+		ss << " sync=false"; // wait-on-eos=false;   // this can improve realtime network streaming, but also causes videos to playback as fast as possible
 
 	mLaunchStr = ss.str();
 
@@ -905,8 +904,11 @@ void gstDecoder::checkBuffer()
 }
 
 
+#define RETURN_STATUS(code)  { if( status != NULL ) { *status=(code); } return ((code) == videoSource::OK ? true : false); }
+
+
 // Capture
-bool gstDecoder::Capture( void** output, imageFormat format, uint64_t timeout )
+bool gstDecoder::Capture( void** output, imageFormat format, uint64_t timeout, int* status )
 {
 	// update the webrtc server if needed
 	if( mWebRTCServer != NULL && !mWebRTCServer->IsThreaded() )
@@ -914,27 +916,33 @@ bool gstDecoder::Capture( void** output, imageFormat format, uint64_t timeout )
 	
 	// verify the output pointer exists
 	if( !output )
-		return false;
+		RETURN_STATUS(ERROR);
 
 	// confirm the stream is open
 	if( !mStreaming || mEOS )
 	{
 		if( !Open() )
-			return false;
+			RETURN_STATUS(mEOS ? EOS : ERROR);
 	}
 
 	// wait until a new frame is recieved
-	if( !mBufferManager->Dequeue(output, format, timeout) )
-	{
-		// this is not always an error
-		//LogError(LOG_GSTREAMER "gstDecoder -- failed to retrieve next image buffer\n");
-		return false;
-	}
+	const int result = mBufferManager->Dequeue(output, format, timeout);
 	
+	if( result < 0 )
+	{
+		LogError(LOG_GSTREAMER "gstDecoder::Capture() -- an error occurred retrieving the next image buffer\n");
+		RETURN_STATUS(ERROR);
+	}
+	else if( result == 0 && timeout > 0)
+	{
+		LogWarning(LOG_GSTREAMER "gstDecoder::Capture() -- a timeout occurred waiting for the next image buffer\n");
+		RETURN_STATUS(TIMEOUT);
+	}
+		
 	mLastTimestamp = mBufferManager->GetLastTimestamp();
 	mRawFormat = mBufferManager->GetRawFormat();
 	
-	return true;
+	RETURN_STATUS(OK);
 }
 
 #if 0
