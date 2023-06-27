@@ -933,9 +933,11 @@ bool gstDecoder::Capture( void** output, imageFormat format, uint64_t timeout, i
 		LogError(LOG_GSTREAMER "gstDecoder::Capture() -- an error occurred retrieving the next image buffer\n");
 		RETURN_STATUS(ERROR);
 	}
-	else if( result == 0 && timeout > 0)
+	else if( result == 0 )
 	{
-		LogWarning(LOG_GSTREAMER "gstDecoder::Capture() -- a timeout occurred waiting for the next image buffer\n");
+		if (timeout > 0)
+			LogWarning(LOG_GSTREAMER "gstDecoder::Capture() -- a timeout occurred waiting for the next image buffer\n");
+
 		RETURN_STATUS(TIMEOUT);
 	}
 		
