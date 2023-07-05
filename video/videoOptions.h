@@ -170,6 +170,11 @@ public:
 	int rtp_fec_payload;
 
 	/**
+	 * If true, create a secondary display stream for videoOutput streams.
+	*/
+	bool no_display = false;
+
+	/**
 	 * Device interface types.
 	 */
 	enum DeviceType

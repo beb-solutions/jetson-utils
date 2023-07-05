@@ -49,7 +49,7 @@ videoOutput::~videoOutput()
 // create secondary display stream (if needed)
 static videoOutput* createDisplaySubstream( videoOutput* output, videoOptions& options, const commandLine& cmdLine )
 {
-	const bool headless = cmdLine.GetFlag("no-display") | cmdLine.GetFlag("headless");
+	const bool headless = cmdLine.GetFlag("no-display") | cmdLine.GetFlag("headless") || options.no_display;
 
 	if( options.resource.protocol != "display" && !headless )
 	{
