@@ -46,11 +46,11 @@ static inline __device__ T YUV2RGB(const uint3& yuvi)
 	const float v    = float(yuvi.z) - 512.0f;
 	const float s    = 1.0f / 1024.0f * 255.0f;	// TODO clamp for uchar output?
 
-#if 1
+#if 1 // BT.?
 	return make_vec<T>(clamp((luma + 1.402f * v) * s),
 				    clamp((luma - 0.344f * u - 0.714f * v) * s),
 				    clamp((luma + 1.772f * u) * s), 255);
-#else
+#else // BT.470
 	return make_vec<T>(clamp((luma + 1.140f * v) * s),
 				    clamp((luma - 0.395f * u - 0.581f * v) * s),
 				    clamp((luma + 2.032f * u) * s), 255);
@@ -179,6 +179,7 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 
 	uchar4 t[4];
 	
+#if  0 // BT.470
 	t[0].x = clamp(chroma[0] + (v << 16));
 	t[0].y = clamp(chroma[0] - (u << 11) - (v << 15));
 	t[0].z = clamp(chroma[0] + (u << 17));
@@ -198,6 +199,27 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	t[3].y = clamp(chroma[3] - (u << 11) - (v << 15));
 	t[3].z = clamp(chroma[3] + (u << 17));
 	t[3].w = 255;
+#else // BT.709
+	t[0].x = clamp(chroma[0] + (v << 16));
+	t[0].y = clamp(chroma[0] - (u << 14) - (v << 15));
+	t[0].z = clamp(chroma[0] + (u << 17));
+	t[0].w = 255;
+
+	t[1].x = clamp(chroma[1] + (v << 16));
+	t[1].y = clamp(chroma[1] - (u << 14) - (v << 15));
+	t[1].z = clamp(chroma[1] + (u << 17));
+	t[1].w = 255;
+
+	t[2].x = clamp(chroma[2] + (v << 16));
+	t[2].y = clamp(chroma[2] - (u << 14) - (v << 15));
+	t[2].z = clamp(chroma[2] + (u << 17));
+	t[2].w = 255;
+
+	t[3].x = clamp(chroma[3] + (v << 16));
+	t[3].y = clamp(chroma[3] - (u << 14) - (v << 15));
+	t[3].z = clamp(chroma[3] + (u << 17));
+	t[3].w = 255;
+#endif
 
 	// write values
 	const int32_t c1 = y * width + x;
