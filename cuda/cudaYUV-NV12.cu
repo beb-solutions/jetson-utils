@@ -35,6 +35,7 @@
 //-----------------------------------------------------------------------------------
 static inline __device__ float clamp( float x )	{ return fminf(fmaxf(x, 0.0f), 255.0f); }
 static inline __device__ uint8_t clamp( int32_t x )	{ return (uint8_t)min(max(x >> 16, 0), 255); }
+static inline __device__ uint8_t clampf( float x )	{ return (uint8_t)fminf(fmaxf(x, 0.f), 255.f); }
 
 
 // YUV2RGB
@@ -150,16 +151,10 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	if (y >= height)
 		return;
 
-	int32_t chroma[4];
-
 	const int32_t n = y * nSourcePitch;
 
 	// read values	
 	uint8_t* srcImageU8 = (uint8_t*)srcImage;
-	chroma[0] = srcImageU8[n + x] << 16;
-	chroma[1] = srcImageU8[n + x + 1] << 16;
-	chroma[2] = srcImageU8[n + nSourcePitch + x] << 16;
-	chroma[3] = srcImageU8[n + nSourcePitch + x + 1] << 16;
 
 	uint8_t uc = srcImageU8[chromaOffset + (n >> 1) + x];
 
@@ -178,6 +173,14 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	const int32_t v = (srcImageU8[chromaOffset + (n >> 1) + x + 1] - 128);
 
 	uchar4 t[4];
+
+#if 0
+	int32_t chroma[4];
+	chroma[0] = srcImageU8[n + x] << 16;
+	chroma[1] = srcImageU8[n + x + 1] << 16;
+	chroma[2] = srcImageU8[n + nSourcePitch + x] << 16;
+	chroma[3] = srcImageU8[n + nSourcePitch + x + 1] << 16;
+	
 	
 #if  0 // BT.470
 	t[0].x = clamp(chroma[0] + (v << 16));
@@ -199,7 +202,7 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	t[3].y = clamp(chroma[3] - (u << 11) - (v << 15));
 	t[3].z = clamp(chroma[3] + (u << 17));
 	t[3].w = 255;
-#else // BT.709
+#else // BT.709 fast
 	t[0].x = clamp(chroma[0] + (v << 16));
 	t[0].y = clamp(chroma[0] - (u << 14) - (v << 15));
 	t[0].z = clamp(chroma[0] + (u << 17));
@@ -218,6 +221,34 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	t[3].x = clamp(chroma[3] + (v << 16));
 	t[3].y = clamp(chroma[3] - (u << 14) - (v << 15));
 	t[3].z = clamp(chroma[3] + (u << 17));
+	t[3].w = 255;
+#endif
+#else
+	// BT.709 slower
+	float chroma[4];
+	chroma[0] = srcImageU8[n + x];
+	chroma[1] = srcImageU8[n + x + 1];
+	chroma[2] = srcImageU8[n + nSourcePitch + x];
+	chroma[3] = srcImageU8[n + nSourcePitch + x + 1];
+
+	t[0].x = clampf(chroma[0] + v * 1.402);
+	t[0].y = clampf(chroma[0] - u * 0.344 - v * 0.714);
+	t[0].z = clampf(chroma[0] + u * 1.772);
+	t[0].w = 255;
+
+	t[1].x = clampf(chroma[1] + v * 1.402);
+	t[1].y = clampf(chroma[1] - u * 0.344 - v * 0.714);
+	t[1].z = clampf(chroma[1] + u * 1.772);
+	t[1].w = 255;
+
+	t[2].x = clampf(chroma[2] + v * 1.402);
+	t[2].y = clampf(chroma[2] - u * 0.344 - v * 0.714);
+	t[2].z = clampf(chroma[2] + u * 1.772);
+	t[2].w = 255;
+
+	t[3].x = clampf(chroma[3] + v * 1.402);
+	t[3].y = clampf(chroma[3] - u * 0.344 - v * 0.714);
+	t[3].z = clampf(chroma[3] + u * 1.772);
 	t[3].w = 255;
 #endif
 
