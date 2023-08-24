@@ -427,7 +427,8 @@ bool gstEncoder::buildLaunchStr()
 				ss << " pt=" << CLAMP(mOptions.rtp_fec_payload, 0, 255) << " ! ";
 			}
 
-			ss << "udpsink host=" << uri.location << " ";
+			//ss << "udpsink blocksize=16384 max-bitrate=50000000 buffer-size=8388608 sync=false host=" << uri.location << " ";
+			ss << "udpsink max-bitrate=80000000 host=" << uri.location << " ";
 
 			if( uri.port != 0 )
 				ss << "port=" << uri.port;
