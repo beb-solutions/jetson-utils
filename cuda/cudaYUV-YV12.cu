@@ -256,7 +256,12 @@ __global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPit
 	v_plane[uvIndex] = v_val;
 
 	if (data && data_length > 0) {
-		uint32_t bit = ((y >> 1) * width + (x >> 1)) / UD_ENC_WIDTH;
+		uint32_t bit;
+		if (!flip)
+			bit = ((y >> 1) * width + (x >> 1)) / UD_ENC_WIDTH;
+		else
+			bit = (((height - y - 1) >> 1) * width + (x >> 1)) / UD_ENC_WIDTH;
+
 		if (bit < (data_length << 3)) {
 			uint8_t* dat = (uint8_t*)data;
 
