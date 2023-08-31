@@ -252,6 +252,22 @@ public:
 	virtual void SetUserData(const void* data, size_t data_length);
 
 	/**
+	 * Sets the bitrate of the encoder.
+	 * 
+	 * @param bitrate bitrate in bits per second
+	 * @returns the bitrate that was set
+	*/
+	virtual uint32_t SetBitrate(uint32_t bitrate);
+
+	/**
+	 * Set the frame rate of the stream.
+	 * 
+	 * @param frameRate frame rate in Hz or FPS
+	 * @returns the frame rate that was set
+	 */
+	virtual uint32_t SetFramerate(uint32_t framerate);
+
+	/**
 	 * Return the width of the stream, in pixels.
 	 */
 	inline uint32_t GetWidth() const						{ return mOptions.width; }

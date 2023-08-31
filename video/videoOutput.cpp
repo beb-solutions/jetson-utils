@@ -236,6 +236,18 @@ void videoOutput::SetUserData(const void* data, size_t data_length)
 }
 
 
+uint32_t videoOutput::SetBitrate(uint32_t bitrate)
+{
+	return mOptions.bitRate;
+}
+
+
+uint32_t videoOutput::SetFramerate(uint32_t framerate)
+{
+	return mOptions.frameRate;
+}
+
+
 // TypeToStr
 const char* videoOutput::TypeToStr( uint32_t type )
 {

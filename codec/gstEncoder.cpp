@@ -79,6 +79,7 @@ gstEncoder::gstEncoder( const videoOptions& options ) : videoOutput(options)
 	mRTSPServer   = NULL;
 	mWebRTCServer = NULL;
 	mNeedData     = false;
+	mChangedOptions = false;
 
 	mBufferYUV.SetThreaded(false);
 	mBufferUserData.SetThreaded(false);
@@ -362,7 +363,7 @@ bool gstEncoder::buildLaunchStr()
 		if( mOptions.deviceType == videoOptions::DEVICE_IP )
 		{
 			if( mOptions.codecType == videoOptions::CODEC_V4L2 )
-				ss << "insert-sps-pps=1 insert-vui=1 idrinterval=30 ";
+				ss << "insert-sps-pps=1 insert-vui=1 idrinterval=30 vbv-size=" << (int)(mOptions.bitRate / 60.f * mOptions.frameRate) << " ";
 			else if( mOptions.codecType == videoOptions::CODEC_OMX )
 				ss << "insert-sps-pps=1 insert-vui=1 ";
 		}
@@ -530,7 +531,7 @@ bool gstEncoder::encodeYUV( void* buffer, size_t size )
 	}
 
 	// construct the buffer caps for this size image
-	if( !mBufferCaps )
+	if( !mBufferCaps || mChangedOptions )
 	{
 		if( !buildCapsStr() )
 		{
@@ -545,6 +546,34 @@ bool gstEncoder::encodeYUV( void* buffer, size_t size )
 			LogError(LOG_GSTREAMER "gstEncoder -- failed to parse caps from string:\n");
 			LogError(LOG_GSTREAMER "   %s\n", mCapsStr.c_str());
 			return false;
+		}
+
+		if (mChangedOptions) {
+			GstElement* encoder = gst_bin_get_by_name(GST_BIN(mPipeline), "encoder");
+
+			if( mOptions.codecType == videoOptions::CODEC_CPU )
+			{
+				if( mOptions.codec == videoOptions::CODEC_H264 || mOptions.codec == videoOptions::CODEC_H265 )
+				{
+					g_object_set(encoder, "bitrate", mOptions.bitRate / 1000, NULL);	// x264enc/x265enc bitrates are in kbits
+				}
+				else if( mOptions.codec == videoOptions::CODEC_VP8 || mOptions.codec == videoOptions::CODEC_VP9 )
+				{
+					g_object_set(encoder, "target-bitrate", mOptions.bitRate, NULL);
+				}
+			}
+			else if( mOptions.codec != videoOptions::CODEC_MJPEG )
+			{
+				g_object_set(encoder, "bitrate", mOptions.bitRate, NULL);
+
+				if( mOptions.deviceType == videoOptions::DEVICE_IP )
+				{
+					if( mOptions.codecType == videoOptions::CODEC_V4L2 )
+						g_object_set(encoder, "vbv-size", (int)(mOptions.bitRate / 60.f * mOptions.frameRate), NULL);
+				}
+			}
+
+			mChangedOptions = false;
 		}
 
 	#if GST_CHECK_VERSION(1,0,0)
@@ -832,6 +861,36 @@ void gstEncoder::SetUserData(const void* data, size_t data_length)
 		void* buf = mBufferUserData.Next(RingBuffer::Write);
 		memcpy(buf, data, data_length);
 	}
+}
+
+
+// SetBitRate
+uint32_t gstEncoder::SetBitrate(uint32_t bitrate) {
+	if (bitrate <= 0)
+		return 0;
+	
+	if (bitrate == mOptions.bitRate)
+		return bitrate;
+
+	mOptions.bitRate = bitrate;
+
+	mChangedOptions = true;
+	return mOptions.bitRate;
+}
+
+
+// SetFramerate
+uint32_t gstEncoder::SetFramerate(uint32_t framerate) {
+	if (framerate <= 0)
+		return 0;
+	
+	if (framerate == mOptions.frameRate)
+		return framerate;
+
+	mOptions.frameRate = framerate;
+	mChangedOptions = true;
+
+	return framerate;
 }
 
 

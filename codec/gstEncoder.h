@@ -105,6 +105,20 @@ public:
 	virtual void SetUserData(const void* data, size_t data_length);
 
 	/**
+	 * Sets the bitrate of the encoder.
+	 * 
+	 * @see videoOutput::SetBitrate
+	*/
+	virtual uint32_t SetBitrate(uint32_t bitrate);
+
+	/**
+	 * Sets the framerate of the encoder.
+	 * 
+	 * @see videoOutput::SetFramerate
+	*/
+	virtual uint32_t SetFramerate(uint32_t framerate);
+
+	/**
 	 * Return the GStreamer pipeline object.
 	 */
 	inline GstPipeline* GetPipeline() const			{ return GST_PIPELINE(mPipeline); }
@@ -178,6 +192,7 @@ protected:
 	WebRTCServer* mWebRTCServer;
 
 	RingBuffer  mBufferUserData;
+	bool		mChangedOptions;
 };
  
  
