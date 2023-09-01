@@ -163,9 +163,6 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 		uint32_t index = (y >> 1) * width + (x >> 1);
 		if (index < max_index) {
 			data[index] = uc;
-
-			// restore the u value, it will not be the original value but it is hardly noticible
-			uc = (uc & ((1 << UD_U_SHIFT) - 1) << (UD_U_SHIFT - 2)); 
 		}
 	}
 

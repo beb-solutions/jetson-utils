@@ -492,7 +492,7 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 				byte = (i / UD_ENC_WIDTH) >> 3;
 				bit = i / UD_ENC_WIDTH - (byte << 3);
 
-				if (sum > limit)
+				if (sum >= limit)
 					data[byte] |= (1 << bit); // set bit
 				else
 					data[byte] &= ~(1 << bit); // reset bit

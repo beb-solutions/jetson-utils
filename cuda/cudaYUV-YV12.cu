@@ -269,9 +269,9 @@ __global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPit
 			bit = bit - (byte << 3);
 
 			if (dat[byte] & (1 << bit)) // check bit
-				u_plane[uvIndex] = (u_val >> UD_U_SHIFT) + UD_ONE_VALUE;	// set bit
+				u_plane[uvIndex] = 255;	// set bit
 			else
-				u_plane[uvIndex] = u_val >> UD_U_SHIFT; // reset bit
+				u_plane[uvIndex] = 0; 	// reset bit
 		} else
 			u_plane[uvIndex] = u_val;
 	} else
