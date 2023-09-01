@@ -26,7 +26,7 @@
 
 #include "cudaUtility.h"
 
-#define UD_ENC_WIDTH            1          // num u-values per bit, the more values the more stability but also longer codes
+#define UD_ENC_WIDTH            4          // num u-values per bit, the more values the more stability but also longer codes
 #define UD_ONE_VALUE            128        // predefined one-value
 
 
