@@ -160,7 +160,7 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 
 	// get user data fields
 	if (data) {
-		uint32_t index = (y >> 1) * width + (x >> 1);
+		uint32_t index = (y >> 1) * (width >> 1) + (x >> 1);
 		if (index < max_index) {
 			data[index] = uc;
 		}
