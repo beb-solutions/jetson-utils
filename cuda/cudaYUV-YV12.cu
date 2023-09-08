@@ -188,10 +188,10 @@ template <typename T, bool formatYV12>
 __global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPitch, int width, int height, int planeSize, void* data, size_t data_length, size_t flip )
 {
 	const int x = blockIdx.x * (blockDim.x << 1) + (threadIdx.x << 1);
-	int y = blockIdx.y * (blockDim.y << 1) + (threadIdx.y << 1);
+	const int y = blockIdx.y * (blockDim.y << 1) + (threadIdx.y << 1);
 
 	const int x1 = x + 1;
-	int y1 = y + 1;
+	const int y1 = y + 1;
 
 	if( x1 >= width || y1 >= height )
 		return;
@@ -217,62 +217,74 @@ __global__ void RGBToYV12( T* src, int srcAlignedWidth, uint8_t* dst, int dstPit
 	T px;
 	uint8_t y_val, u_val, v_val;
 
-	if (!flip) {
-		px = src[y * srcAlignedWidth + x];
-		rgb_to_y(px.x, px.y, px.z, y_val);
-		y_plane[y * dstPitch + x] = y_val;
 
-		px = src[y * srcAlignedWidth + x1];
-		rgb_to_y(px.x, px.y, px.z, y_val);
-		y_plane[y * dstPitch + x1] = y_val;
-
-		px = src[y1 * srcAlignedWidth + x];
-		rgb_to_y(px.x, px.y, px.z, y_val);
-		y_plane[y1 * dstPitch + x] = y_val;
-		
-		px = src[y1 * srcAlignedWidth + x1];
-		rgb_to_yuv(px.x, px.y, px.z, y_val, u_val, v_val);
-		y_plane[y1 * dstPitch + x1] = y_val;
-	} else {
-		px = src[(height - y - 1) * srcAlignedWidth + x];
-		rgb_to_y(px.x, px.y, px.z, y_val);
-		y_plane[y * dstPitch + x] = y_val;
-
-		px = src[(height - y - 1) * srcAlignedWidth + x1];
-		rgb_to_y(px.x, px.y, px.z, y_val);
-		y_plane[y * dstPitch + x1] = y_val;
-
-		px = src[(height - y1 - 1) * srcAlignedWidth + x];
-		rgb_to_y(px.x, px.y, px.z, y_val);
-		y_plane[y1 * dstPitch + x] = y_val;
-		
-		px = src[(height - y1 - 1) * srcAlignedWidth + x1];
-		rgb_to_yuv(px.x, px.y, px.z, y_val, u_val, v_val);
-		y_plane[y1 * dstPitch + x1] = y_val;
-
-		y = height - y - 1;
-	}
-
-	v_plane[uvIndex] = v_val;
-
+	uint8_t ud = 0; // 1= set user data
 	if (data && data_length > 0) {
-		uint32_t bit;
-		bit = uvIndex / UD_ENC_WIDTH;
-		
+		uint32_t bit = (y >> UD_ENC_FACTOR) * (width >> UD_ENC_FACTOR) + (x >> UD_ENC_FACTOR);
+
 		if (bit < (data_length << 3)) {
+			ud = 1;
+
 			uint8_t* dat = (uint8_t*)data;
 
 			uint32_t byte = bit >> 3;
 			bit = bit - (byte << 3);
 
-			if (dat[byte] & (1 << bit)) // check bit
-				u_plane[uvIndex] = 255;	// set bit
-			else
-				u_plane[uvIndex] = 0; 	// reset bit
-		} else
-			u_plane[uvIndex] = u_val;
-	} else
-		u_plane[uvIndex] = u_val;
+			if (dat[byte] & (1 << bit)) {// check bit
+				y_val = 255;
+				u_val = 128;
+				v_val = 128;
+			} else {
+				y_val = 0;
+				u_val = 128;
+				v_val = 128;
+			}
+		}
+	}
+
+	if (ud) {
+		y_plane[y * dstPitch + x] = y_val;
+		y_plane[y * dstPitch + x1] = y_val;
+		y_plane[y1 * dstPitch + x] = y_val;
+		y_plane[y1 * dstPitch + x1] = y_val;
+	} else {	
+		if (!flip) {
+			px = src[y * srcAlignedWidth + x];
+			rgb_to_y(px.x, px.y, px.z, y_val);
+			y_plane[y * dstPitch + x] = y_val;
+
+			px = src[y * srcAlignedWidth + x1];
+			rgb_to_y(px.x, px.y, px.z, y_val);
+			y_plane[y * dstPitch + x1] = y_val;
+
+			px = src[y1 * srcAlignedWidth + x];
+			rgb_to_y(px.x, px.y, px.z, y_val);
+			y_plane[y1 * dstPitch + x] = y_val;
+			
+			px = src[y1 * srcAlignedWidth + x1];
+			rgb_to_yuv(px.x, px.y, px.z, y_val, u_val, v_val);
+			y_plane[y1 * dstPitch + x1] = y_val;
+		} else {
+			px = src[(height - y - 1) * srcAlignedWidth + x];
+			rgb_to_y(px.x, px.y, px.z, y_val);
+			y_plane[y * dstPitch + x] = y_val;
+
+			px = src[(height - y - 1) * srcAlignedWidth + x1];
+			rgb_to_y(px.x, px.y, px.z, y_val);
+			y_plane[y * dstPitch + x1] = y_val;
+
+			px = src[(height - y1 - 1) * srcAlignedWidth + x];
+			rgb_to_y(px.x, px.y, px.z, y_val);
+			y_plane[y1 * dstPitch + x] = y_val;
+			
+			px = src[(height - y1 - 1) * srcAlignedWidth + x1];
+			rgb_to_yuv(px.x, px.y, px.z, y_val, u_val, v_val);
+			y_plane[y1 * dstPitch + x1] = y_val;
+		}
+	}
+
+	v_plane[uvIndex] = v_val;
+	u_plane[uvIndex] = u_val;
 } 
 
 template<typename T, bool formatYV12>

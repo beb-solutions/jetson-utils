@@ -460,7 +460,9 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 			return -1;
 		}
 	} else {
-		if (!mBufferUserDataHelper.Alloc(1, (mBufferUserData.GetBufferSize() << 3) * UD_ENC_WIDTH, RingBuffer::ZeroCopy)) {
+		size_t num_values = (mBufferUserData.GetBufferSize() << 3) * UD_ENC_FACTOR + UD_ENC_FACTOR * (mOptions->width >> 1);
+
+		if (!mBufferUserDataHelper.Alloc(1, num_values, RingBuffer::ZeroCopy)) {
 			return false;
 		}
 
@@ -474,29 +476,42 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 			return -1;
 		}
 
-		uint8_t* bcode = (uint8_t*)gpu_data;
-		int sum = 0;
-		int num = mBufferUserDataHelper.GetBufferSize();
-		int limit = UD_ENC_WIDTH * (256 - UD_ONE_VALUE); // limit for zero/one decision
-
-		int byte = 0;
-		int bit = 0;
-
 		uint8_t* data = (uint8_t*)mBufferUserData.Next(RingBuffer::Write);
+		memset(data, 0, mBufferUserData.GetBufferSize());
 
-		for(int i=0; i<num; i++) {
-			if (i % UD_ENC_WIDTH == 0) sum = 0;
-			sum += bcode[i];
+		uint8_t* bcode = (uint8_t*)gpu_data;
+		size_t num_bits = (mBufferUserData.GetBufferSize() << 3);
+		
+						
+		int byte;
+		int bit;
+		uint8_t value;
 
-			if ( (i+1) % UD_ENC_WIDTH == 0) {
-				byte = (i / UD_ENC_WIDTH) >> 3;
-				bit = i / UD_ENC_WIDTH - (byte << 3);
+		for(int i=0; i<num_bits; i++) {
+			#if UD_ENC_FACTOR == 1
+				value = bcode[i];	
+			#elif UD_ENC_FACTOR == 2
+				int j = i << 1;
+				int off = mOptions->width >> 1;
 
-				if (sum >= limit)
-					data[byte] |= (1 << bit); // set bit
-				else
-					data[byte] &= ~(1 << bit); // reset bit
-			}
+				value = ((int)bcode[j] + (int)bcode[j + 1] + (int)bcode[j + off] + (int)bcode[j + 1 + off]) >> 2;
+			#elif UD_ENC_FACTOR == 3
+				int j = i << 2;
+				int off = mOptions->width >> 1;
+
+				value = ((int)bcode[j] + (int)bcode[j + 1] + (int)bcode[j + 2] + (int)bcode[j + 3] +
+					(int)bcode[j + off] + (int)bcode[j + 1 + off] + (int)bcode[j + 2 + off] + (int)bcode[j + 3 + off] +
+					(int)bcode[j + (off << 1)] + (int)bcode[j + 1 + (off << 1)] + (int)bcode[j + 2 + (off << 1)] + (int)bcode[j + 3 + (off << 1)] +
+					(int)bcode[j + 3* off] + (int)bcode[j + 1 + 3* off] + (int)bcode[j + 2 + 3* off] + (int)bcode[j + 3 + 3* off]) >> 4;
+			#endif
+
+			byte = i >> 3;
+			bit = i - (byte << 3);
+
+			if (value > 127)
+				data[byte] |= (1 << bit); // set bit
+			else
+				data[byte] &= ~(1 << bit); // reset bit
 		}
 	}
 

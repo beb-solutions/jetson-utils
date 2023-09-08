@@ -140,7 +140,7 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
                           uchar4* dstImage,        size_t nDestPitch,
                           uint32_t width,     uint32_t height, 
 						  size_t chromaOffset,
-						  uint8_t* data, size_t max_index)
+						  uint8_t* data, size_t data_length)
 {
 	const int32_t x = blockIdx.x * (blockDim.x << 1) + (threadIdx.x << 1);
 	const int32_t y = blockIdx.y * (blockDim.y << 1) + (threadIdx.y << 1);
@@ -156,21 +156,10 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	// read values	
 	uint8_t* srcImageU8 = (uint8_t*)srcImage;
 
-	uint8_t uc = srcImageU8[chromaOffset + (n >> 1) + x];
-
-	// get user data fields
-	if (data) {
-		uint32_t index = (y >> 1) * (width >> 1) + (x >> 1);
-		if (index < max_index) {
-			data[index] = uc;
-		}
-	}
-
-	const int32_t u = (uc - 128);
+	const int32_t u = (srcImageU8[chromaOffset + (n >> 1) + x] - 128);
 	const int32_t v = (srcImageU8[chromaOffset + (n >> 1) + x + 1] - 128);
 
 	uchar4 t[4];
-
 #if 0
 	int32_t chroma[4];
 	chroma[0] = srcImageU8[n + x] << 16;
@@ -249,6 +238,14 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	t[3].w = 255;
 #endif
 
+	// get user data fields
+	if (data) {
+		uint32_t index = (y >> 1) * (width >> 1) + (x >> 1);
+		if (index < data_length) {
+			data[index] = clampf((chroma[0] + chroma[1] + chroma[2] + chroma[3]) * 0.25f);
+		}
+	}
+
 	// write values
 	const int32_t c1 = y * width + x;
 	dstImage[c1] = t[0];
@@ -293,7 +290,9 @@ static cudaError_t launchNV12ToRGB( void* srcDev, uchar4* dstDev, size_t width, 
 	const dim3 blockDim(32, 8);
 	const dim3 gridDim(iDivUp(width, blockDim.x << 1), iDivUp(height, blockDim.y << 1));
 
-	NV12ToRGB<<<gridDim, blockDim>>>( (uint32_t*)srcDev, srcPitch, dstDev, dstPitch, width, height, chromaOffset, (uint8_t*)data, data_length * UD_ENC_WIDTH);
+	memset(data, 0, data_length);
+
+	NV12ToRGB<<<gridDim, blockDim>>>( (uint32_t*)srcDev, srcPitch, dstDev, dstPitch, width, height, chromaOffset, (uint8_t*)data, data_length);
 	
 	return CUDA(cudaGetLastError());
 }
