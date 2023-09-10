@@ -412,7 +412,7 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 		latestYUV = mBufferYUV.Next(RingBuffer::ReadLatestOnce);
 
 	if( !latestYUV )
-		return -1;
+		return 0;
 
 	// handle timestamp (both paths)
 	void* pLastTimestamp = NULL;
@@ -486,6 +486,8 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 		int byte;
 		int bit;
 		uint8_t value;
+
+		CUDA(cudaDeviceSynchronize());
 
 		for(int i=0; i<num_bits; i++) {
 			#if UD_ENC_FACTOR == 1
