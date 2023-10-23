@@ -118,7 +118,7 @@ cudaError_t cudaRGBAToI420( uchar4* input, void* output, size_t width, size_t he
 
 /**
  * Convert an RGBA uchar4 buffer into YUV I420 planar. 
- * Add additional data to the frame (in the u-plane).
+ * Add additional data to the frame.
  * 
  * @param data must be in mapped CPU/GPU memory.
  * @param flip if 1 the image will be flipped vertical
@@ -288,9 +288,9 @@ cudaError_t cudaNV12ToRGBA( void* input, uchar4* output, size_t width, size_t he
  * Convert an NV12 texture (semi-planar 4:2:0) to RGBA uchar4 format.
  * NV12 = 8-bit Y plane followed by an interleaved U/V plane with 2x2 subsampling.
  * 
- * Extracts additional data from the u-plane up to data_length size.
+ * Extracts additional data from the chroma plane up to data_length size.
  */
-cudaError_t cudaNV12ToRGBA( void* input, uchar4* output, size_t width, size_t height, void* data, size_t data_length );
+cudaError_t cudaNV12ToRGBA( void* input, uchar4* output, size_t width, size_t height, void* data, size_t data_length, bool use_bgra);
 
 /**
  * Convert an NV12 texture (semi-planar 4:2:0) to RGBA float4 format.

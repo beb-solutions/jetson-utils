@@ -447,7 +447,7 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 	// perform colorspace conversion
 	void* nextRGB = mBufferRGB.Next(RingBuffer::Write);
 
-	if (mBufferUserData.GetBufferSize() == 0) {
+	if (mBufferUserData.GetBufferSize() == 0 && !mOptions->use_bgra) {
 		if( CUDA_FAILED(cudaConvertColor(latestYUV, mFormatYUV, nextRGB, format, mOptions->width, mOptions->height)) )
 		{
 			LogError(LOG_GSTREAMER "gstBufferManager -- unsupported image format (%s)\n", imageFormatToStr(format));
@@ -460,14 +460,20 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 			return -1;
 		}
 	} else {
-		size_t num_values = (mBufferUserData.GetBufferSize() << 3) * UD_ENC_FACTOR + UD_ENC_FACTOR * (mOptions->width >> 1);
+		void* gpu_data = NULL;
 
-		if (!mBufferUserDataHelper.Alloc(1, num_values, RingBuffer::ZeroCopy)) {
-			return false;
+		if (mBufferUserData.GetBufferSize() > 0) {
+			size_t num_values = (mBufferUserData.GetBufferSize() << 3) * UD_ENC_FACTOR + UD_ENC_FACTOR * (mOptions->width >> 1);
+
+			if (!mBufferUserDataHelper.Alloc(1, num_values, RingBuffer::ZeroCopy)) {
+				return false;
+			}
+
+			gpu_data = mBufferUserDataHelper.Next(RingBuffer::Write);
 		}
 
-		void* gpu_data = mBufferUserDataHelper.Next(RingBuffer::Write);
-		if( CUDA_FAILED(cudaConvertColor(latestYUV, mFormatYUV, nextRGB, format, mOptions->width, mOptions->height, gpu_data, mBufferUserDataHelper.GetBufferSize(), 0)) )
+		if( CUDA_FAILED(cudaConvertColor(latestYUV, mFormatYUV, nextRGB, format, mOptions->width, mOptions->height, 
+			gpu_data, mBufferUserDataHelper.GetBufferSize(), 0, mOptions->use_bgra)) )
 		{
 			LogError(LOG_GSTREAMER "gstBufferManager -- unsupported image format (%s)\n", imageFormatToStr(format));
 			LogError(LOG_GSTREAMER "                    supported formats are:\n");
@@ -476,44 +482,46 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 			return -1;
 		}
 
-		uint8_t* data = (uint8_t*)mBufferUserData.Next(RingBuffer::Write);
-		memset(data, 0, mBufferUserData.GetBufferSize());
+		if (mBufferUserDataHelper.GetBufferSize() != 0) {
+			uint8_t* data = (uint8_t*)mBufferUserData.Next(RingBuffer::Write);
+			memset(data, 0, mBufferUserData.GetBufferSize());
 
-		uint8_t* bcode = (uint8_t*)gpu_data;
-		size_t num_bits = (mBufferUserData.GetBufferSize() << 3);
-		
-						
-		int byte;
-		int bit;
-		uint8_t value;
+			uint8_t* bcode = (uint8_t*)gpu_data;
+			size_t num_bits = (mBufferUserData.GetBufferSize() << 3);
+			
+							
+			int byte;
+			int bit;
+			uint8_t value;
 
-		CUDA(cudaDeviceSynchronize());
+			CUDA(cudaDeviceSynchronize());
 
-		for(int i=0; i<num_bits; i++) {
-			#if UD_ENC_FACTOR == 1
-				value = bcode[i];	
-			#elif UD_ENC_FACTOR == 2
-				int j = i << 1;
-				int off = mOptions->width >> 1;
+			for(int i=0; i<num_bits; i++) {
+				#if UD_ENC_FACTOR == 1
+					value = bcode[i];	
+				#elif UD_ENC_FACTOR == 2
+					int j = i << 1;
+					int off = mOptions->width >> 1;
 
-				value = ((int)bcode[j] + (int)bcode[j + 1] + (int)bcode[j + off] + (int)bcode[j + 1 + off]) >> 2;
-			#elif UD_ENC_FACTOR == 3
-				int j = i << 2;
-				int off = mOptions->width >> 1;
+					value = ((int)bcode[j] + (int)bcode[j + 1] + (int)bcode[j + off] + (int)bcode[j + 1 + off]) >> 2;
+				#elif UD_ENC_FACTOR == 3
+					int j = i << 2;
+					int off = mOptions->width >> 1;
 
-				value = ((int)bcode[j] + (int)bcode[j + 1] + (int)bcode[j + 2] + (int)bcode[j + 3] +
-					(int)bcode[j + off] + (int)bcode[j + 1 + off] + (int)bcode[j + 2 + off] + (int)bcode[j + 3 + off] +
-					(int)bcode[j + (off << 1)] + (int)bcode[j + 1 + (off << 1)] + (int)bcode[j + 2 + (off << 1)] + (int)bcode[j + 3 + (off << 1)] +
-					(int)bcode[j + 3* off] + (int)bcode[j + 1 + 3* off] + (int)bcode[j + 2 + 3* off] + (int)bcode[j + 3 + 3* off]) >> 4;
-			#endif
+					value = ((int)bcode[j] + (int)bcode[j + 1] + (int)bcode[j + 2] + (int)bcode[j + 3] +
+						(int)bcode[j + off] + (int)bcode[j + 1 + off] + (int)bcode[j + 2 + off] + (int)bcode[j + 3 + off] +
+						(int)bcode[j + (off << 1)] + (int)bcode[j + 1 + (off << 1)] + (int)bcode[j + 2 + (off << 1)] + (int)bcode[j + 3 + (off << 1)] +
+						(int)bcode[j + 3* off] + (int)bcode[j + 1 + 3* off] + (int)bcode[j + 2 + 3* off] + (int)bcode[j + 3 + 3* off]) >> 4;
+				#endif
 
-			byte = i >> 3;
-			bit = i - (byte << 3);
+				byte = i >> 3;
+				bit = i - (byte << 3);
 
-			if (value > 127)
-				data[byte] |= (1 << bit); // set bit
-			else
-				data[byte] &= ~(1 << bit); // reset bit
+				if (value > 127)
+					data[byte] |= (1 << bit); // set bit
+				else
+					data[byte] &= ~(1 << bit); // reset bit
+			}
 		}
 	}
 

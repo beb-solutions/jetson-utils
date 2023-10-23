@@ -753,7 +753,8 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 		}
 	} else {
 		void* data = mBufferUserData.GetBufferSize() > 0 ? mBufferUserData.Next(RingBuffer::ReadLatest) : NULL;
-		if( CUDA_FAILED(cudaConvertColor(image, format, nextYUV, IMAGE_I420, width, height, data, mBufferUserData.GetBufferSize(), (size_t)(mOptions.flipMethod == videoOptions::FLIP_VERTICAL))) )
+		if( CUDA_FAILED(cudaConvertColor(image, format, nextYUV, IMAGE_I420, width, height,
+		data, mBufferUserData.GetBufferSize(), (size_t)(mOptions.flipMethod == videoOptions::FLIP_VERTICAL), false)) )
 		{
 			LogError(LOG_GSTREAMER "gstEncoder::Render() -- cudaConvertColorCode: unsupported image format (%s)\n", imageFormatToStr(format));
 			LogError(LOG_GSTREAMER "                        supported formats are:\n");

@@ -175,6 +175,11 @@ public:
 	bool no_display = false;
 
 	/**
+	 * If true, use BGRA instead of RGBA format for videoSource streams.
+	 */
+	bool use_bgra = false;
+
+	/**
 	 * Device interface types.
 	 */
 	enum DeviceType

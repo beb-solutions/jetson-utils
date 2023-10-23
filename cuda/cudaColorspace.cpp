@@ -35,6 +35,7 @@ cudaError_t cudaConvertColor( void* input, imageFormat inputFormat,
 					     size_t width, size_t height,
 						 void* data, size_t data_length,
 						 size_t flip,
+						 bool use_bgra,
 						 const float2& pixel_range)
 {
 	if( inputFormat == IMAGE_RGBA8 )
@@ -45,7 +46,7 @@ cudaError_t cudaConvertColor( void* input, imageFormat inputFormat,
 	else if( inputFormat == IMAGE_NV12 )
 	{
 		if( outputFormat == IMAGE_RGBA8 )
-			return CUDA(cudaNV12ToRGBA(input, (uchar4*)output, width, height, data, data_length));
+			return CUDA(cudaNV12ToRGBA(input, (uchar4*)output, width, height, data, data_length, use_bgra));
 	}
 
 	LogError(LOG_CUDA "cudaConvertColor() -- invalid input/output format combination (%s -> %s)\n", imageFormatToStr(inputFormat), imageFormatToStr(outputFormat));

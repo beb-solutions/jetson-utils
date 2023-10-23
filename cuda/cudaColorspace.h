@@ -80,6 +80,7 @@ cudaError_t cudaConvertColor( void* input, imageFormat inputFormat,
  * @param data pointer to the additional data array, must be mapped CPU/GPU memory
  * @param data_length length of the data array
  * @param flip for RGBA8 to I420 only: if 1, flip the image vertical
+ * @param use_bgra for NV12 to RGBA only: if 1, use BGRA instead of RGBA
  * @param pixel_range for floating-point to 8-bit conversions, specifies the range of pixel intensities
  *                    in the input image that get normalized to `[0,255]`.  The default input range is
  *                    `[0,255]`, and as such no normalization occurs.  Other common pixel ranges include
@@ -94,6 +95,7 @@ cudaError_t cudaConvertColor( void* input, imageFormat inputFormat,
 					     size_t width, size_t height,
 						 void* data, size_t data_length,
 						 size_t flip,
+						 bool use_bgra,
 						 const float2& pixel_range=make_float2(0,255));
 
 /**

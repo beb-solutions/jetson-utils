@@ -140,7 +140,8 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
                           uchar4* dstImage,        size_t nDestPitch,
                           uint32_t width,     uint32_t height, 
 						  size_t chromaOffset,
-						  uint8_t* data, size_t data_length)
+						  uint8_t* data, size_t data_length,
+						  bool use_bgra)
 {
 	const int32_t x = blockIdx.x * (blockDim.x << 1) + (threadIdx.x << 1);
 	const int32_t y = blockIdx.y * (blockDim.y << 1) + (threadIdx.y << 1);
@@ -217,25 +218,47 @@ __global__ void NV12ToRGB(uint32_t* srcImage, size_t nSourcePitch,
 	chroma[2] = srcImageU8[n + nSourcePitch + x];
 	chroma[3] = srcImageU8[n + nSourcePitch + x + 1];
 
-	t[0].x = clampf(chroma[0] + v * 1.402);
-	t[0].y = clampf(chroma[0] - u * 0.344 - v * 0.714);
-	t[0].z = clampf(chroma[0] + u * 1.772);
-	t[0].w = 255;
+	if (!use_bgra) {
+		t[0].x = clampf(chroma[0] + v * 1.402);
+		t[0].y = clampf(chroma[0] - u * 0.344 - v * 0.714);
+		t[0].z = clampf(chroma[0] + u * 1.772);
+		t[0].w = 255;
 
-	t[1].x = clampf(chroma[1] + v * 1.402);
-	t[1].y = clampf(chroma[1] - u * 0.344 - v * 0.714);
-	t[1].z = clampf(chroma[1] + u * 1.772);
-	t[1].w = 255;
+		t[1].x = clampf(chroma[1] + v * 1.402);
+		t[1].y = clampf(chroma[1] - u * 0.344 - v * 0.714);
+		t[1].z = clampf(chroma[1] + u * 1.772);
+		t[1].w = 255;
 
-	t[2].x = clampf(chroma[2] + v * 1.402);
-	t[2].y = clampf(chroma[2] - u * 0.344 - v * 0.714);
-	t[2].z = clampf(chroma[2] + u * 1.772);
-	t[2].w = 255;
+		t[2].x = clampf(chroma[2] + v * 1.402);
+		t[2].y = clampf(chroma[2] - u * 0.344 - v * 0.714);
+		t[2].z = clampf(chroma[2] + u * 1.772);
+		t[2].w = 255;
 
-	t[3].x = clampf(chroma[3] + v * 1.402);
-	t[3].y = clampf(chroma[3] - u * 0.344 - v * 0.714);
-	t[3].z = clampf(chroma[3] + u * 1.772);
-	t[3].w = 255;
+		t[3].x = clampf(chroma[3] + v * 1.402);
+		t[3].y = clampf(chroma[3] - u * 0.344 - v * 0.714);
+		t[3].z = clampf(chroma[3] + u * 1.772);
+		t[3].w = 255;
+	} else {
+		t[0].z = clampf(chroma[0] + v * 1.402);
+		t[0].y = clampf(chroma[0] - u * 0.344 - v * 0.714);
+		t[0].x = clampf(chroma[0] + u * 1.772);
+		t[0].w = 255;
+
+		t[1].z = clampf(chroma[1] + v * 1.402);
+		t[1].y = clampf(chroma[1] - u * 0.344 - v * 0.714);
+		t[1].x = clampf(chroma[1] + u * 1.772);
+		t[1].w = 255;
+
+		t[2].z = clampf(chroma[2] + v * 1.402);
+		t[2].y = clampf(chroma[2] - u * 0.344 - v * 0.714);
+		t[2].x = clampf(chroma[2] + u * 1.772);
+		t[2].w = 255;
+
+		t[3].z = clampf(chroma[3] + v * 1.402);
+		t[3].y = clampf(chroma[3] - u * 0.344 - v * 0.714);
+		t[3].x = clampf(chroma[3] + u * 1.772);
+		t[3].w = 255;
+	}
 #endif
 
 	// get user data fields
@@ -275,7 +298,7 @@ static cudaError_t launchNV12ToRGB( void* srcDev, T* dstDev, size_t width, size_
 	return CUDA(cudaGetLastError());
 }
 
-static cudaError_t launchNV12ToRGB( void* srcDev, uchar4* dstDev, size_t width, size_t height, void* data, size_t data_length )
+static cudaError_t launchNV12ToRGB( void* srcDev, uchar4* dstDev, size_t width, size_t height, void* data, size_t data_length, bool use_bgra )
 {
 	if( !srcDev || !dstDev )
 		return cudaErrorInvalidDevicePointer;
@@ -292,7 +315,7 @@ static cudaError_t launchNV12ToRGB( void* srcDev, uchar4* dstDev, size_t width, 
 
 	memset(data, 0, data_length);
 
-	NV12ToRGB<<<gridDim, blockDim>>>( (uint32_t*)srcDev, srcPitch, dstDev, dstPitch, width, height, chromaOffset, (uint8_t*)data, data_length);
+	NV12ToRGB<<<gridDim, blockDim>>>( (uint32_t*)srcDev, srcPitch, dstDev, dstPitch, width, height, chromaOffset, (uint8_t*)data, data_length, use_bgra);
 	
 	return CUDA(cudaGetLastError());
 }
@@ -312,13 +335,13 @@ cudaError_t cudaNV12ToRGB( void* srcDev, float3* destDev, size_t width, size_t h
 // cudaNV12ToRGBA (uchar4)
 cudaError_t cudaNV12ToRGBA( void* srcDev, uchar4* destDev, size_t width, size_t height )
 {
-	return launchNV12ToRGB(srcDev, destDev, width, height, NULL, 0);
+	return launchNV12ToRGB(srcDev, destDev, width, height, NULL, 0, false);
 }
 
 // cudaNV12ToRGBA (uchar4)
-cudaError_t cudaNV12ToRGBA( void* srcDev, uchar4* destDev, size_t width, size_t height, void* data, size_t data_length )
+cudaError_t cudaNV12ToRGBA( void* srcDev, uchar4* destDev, size_t width, size_t height, void* data, size_t data_length, bool use_bgra)
 {
-	return launchNV12ToRGB(srcDev, destDev, width, height, data, data_length);
+	return launchNV12ToRGB(srcDev, destDev, width, height, data, data_length, use_bgra);
 }
 
 // cudaNV12ToRGBA (float4)
