@@ -582,7 +582,10 @@ bool gstDecoder::buildLaunchStr()
 		}
 
 		ss << "udpsrc port=" << uri.port;
-		ss << " multicast-group=" << uri.location << " auto-multicast=true";
+		ss << " address=" << uri.location << " auto-multicast=true";
+
+		if (uri.path != "")
+			ss << " multicast-iface=" << uri.path;
 
 		// rtpstorage, jitterbuffer and rtp fec when needed
 		std::ostringstream rtpfec;

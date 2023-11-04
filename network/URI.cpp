@@ -114,7 +114,7 @@ bool URI::Parse( const char* uri )
 	}
 
 	// the path is typically the full location except with IP streams
-	path = location;
+	path = "";
 	
 	// protocol should be all lowercase for easier parsing
 	protocol = toLower(protocol);
@@ -127,6 +127,7 @@ bool URI::Parse( const char* uri )
 			LogError("URI -- failed to parse V4L2 device ID from %s\n", location.c_str());
 			return false;
 		}
+		path = location;
 	}
 	else if( protocol == "csi" )
 	{
@@ -135,6 +136,7 @@ bool URI::Parse( const char* uri )
 			LogError("URI -- failed to parse MIPI CSI device ID from %s\n", location.c_str());
 			return false;
 		}
+		path = location;
 	}
 	else if( protocol == "display" )
 	{
@@ -143,10 +145,12 @@ bool URI::Parse( const char* uri )
 			LogVerbose("URI -- using default display device 0\n");
 			port = 0;
 		}
+		path = location;
 	}
 	else if( protocol == "file" )
 	{
 		extension = fileExtension(location);
+		path = location;
 	}
 	else
 	{		
@@ -168,13 +172,16 @@ bool URI::Parse( const char* uri )
 			std::size_t path_pos = location.find("/", pos+1);	// "xxx.xxx.xxx.xxxx:port/path"
 			
 			if( path_pos != std::string::npos )
-				path = location.substr(path_pos, std::string::npos);
+				path = location.substr(path_pos + 1, std::string::npos);
+			else
+				path = location;
 			
 			port_str = location.substr(pos+1, path_pos);
 			location = location.substr(0, pos);
 		}
 		else if( std::count(location.begin(), location.end(), '.') == 0 ) // "port"
 		{
+			path = location;
 			port_str = location;
 			location = "0.0.0.0";
 		}
