@@ -412,7 +412,7 @@ bool gstEncoder::buildLaunchStr()
 			ss << "rtpjpegpay";
 
 		if( mOptions.codec == videoOptions::CODEC_H264 || mOptions.codec == videoOptions::CODEC_H265 ) 
-			ss << " config-interval=1";	// aggregate-mode=zero-latency";
+			ss << " mtu=1370 config-interval=1";	// aggregate-mode=zero-latency";
 		
 		if( uri.protocol == "rtsp" )
 			ss << " name=pay0";	 // GstRTSPServer expects the payloaders to be named pay0, pay1, ect
