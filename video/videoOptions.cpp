@@ -32,6 +32,8 @@ videoOptions::videoOptions()
 {
 	width 	  = 0;
 	height 	  = 0;
+	source_width = 0;
+	source_height = 0;
 	frameRate   = 0;
 	frameCount  = 0;
 	bitRate     = 0;

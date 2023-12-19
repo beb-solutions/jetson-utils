@@ -215,7 +215,7 @@ bool gstDecoder::init()
 	// discover resource stats
 	if( !discover() )
 	{
-		if( mOptions.resource.protocol == "rtp" || mOptions.resource.protocol == "webrtc" )
+		if( mOptions.resource.protocol == "rtp" || mOptions.resource.protocol == "webrtc" || mOptions.resource.protocol == "shm" )
 		{
 			LogWarning(LOG_GSTREAMER "gstDecoder -- resource discovery not supported for RTP/WebRTC streams\n");	
 
@@ -366,8 +366,8 @@ static GstDiscovererVideoInfo* findVideoStreamInfo( GstDiscovererStreamInfo* inf
 // discover
 bool gstDecoder::discover()
 {
-	// RTP streams and WebRTC connections can't be discovered
-	if( mOptions.resource.protocol == "rtp" || mOptions.resource.protocol == "webrtc" )
+	// RTP, SHM streams and WebRTC connections can't be discovered
+	if( mOptions.resource.protocol == "rtp" || mOptions.resource.protocol == "webrtc" || mOptions.resource.protocol == "shm" )
 		return false;
 
 	// create a new discovery interface
@@ -542,7 +542,11 @@ bool gstDecoder::buildLaunchStr()
 	// determine the requested protocol to use
 	const URI& uri = GetResource();
 
-	if( uri.protocol == "file" )
+	if( uri.protocol == "shm" )
+	{
+		ss << "shmsrc is-live=true socket-path=" << mOptions.resource.location << " ! ";
+		ss << "video/x-raw, format=(string)NV12, width=(int)" << mOptions.source_width << ", height=(int)" << mOptions.source_height << " ! queue ! ";
+	} else if( uri.protocol == "file" )
 	{
 		mOptions.deviceType = videoOptions::DEVICE_FILE;
 		
@@ -677,65 +681,67 @@ bool gstDecoder::buildLaunchStr()
 	}
 		
 	// add the decoder
-	ss << decoder << " name=decoder ";
-	
-	if( (mOptions.codecType == videoOptions::CODEC_OMX || mOptions.codecType == videoOptions::CODEC_V4L2)
-		&& mOptions.codec != videoOptions::CODEC_MJPEG ) {
+	if (uri.protocol != "shm") {
+		ss << decoder << " name=decoder ";
 		
-		if (mOptions.codecType != videoOptions::CODEC_OMX)
-			ss << "enable-max-performance=1 ";
-
-		if ( mOptions.deviceType == videoOptions::DEVICE_IP )
-			ss << "disable-dpb=1 ";
-	}
-
-	ss << "! ";
-	
-	// resize if requested
-	if( mCustomSize || mOptions.flipMethod != videoOptions::FLIP_NONE )
-	{
-	#if defined(__aarch64__)
-		ss << "nvvidconv name=vidconv";
-
-		if( mOptions.flipMethod != videoOptions::FLIP_NONE )
-			ss << " flip-method=" << (int)mOptions.flipMethod;
-		
-		ss << " ! video/x-raw";
-		
-	#elif defined(__x86_64__) || defined(__amd64__)
-		if( mOptions.flipMethod != videoOptions::FLIP_NONE )
-			ss << "videoflip method=" << videoOptions::FlipMethodToStr(mOptions.flipMethod) << " ! ";
-		
-		if( mOptions.width != 0 && mOptions.height != 0 )
-			ss << "videoscale ! ";
-		
-		ss << "video/x-raw";
-	#endif
-
-		if( enable_nvmm )
-			ss << "(" << GST_CAPS_FEATURE_MEMORY_NVMM << ")";
-
-		if( mOptions.width != 0 && mOptions.height != 0 )
-			ss << ", width=(int)" << mOptions.width << ", height=(int)" << mOptions.height << ", format=(string)NV12";
-
-		ss <<" ! ";
-	}
-	else
-	{
-		ss << "video/x-raw";
-		
-		if( enable_nvmm || mOptions.codecType == videoOptions::CODEC_V4L2 )
-		{
-			// add NVMM caps when requested, or if using V4L2 codecs
-			ss << "(" << GST_CAPS_FEATURE_MEMORY_NVMM << ")";
+		if( (mOptions.codecType == videoOptions::CODEC_OMX || mOptions.codecType == videoOptions::CODEC_V4L2)
+			&& mOptions.codec != videoOptions::CODEC_MJPEG ) {
 			
-			// V4L2 codecs only output NVMM memory
-			// so if NVMM is disabled, put it through nvvidconv first
-			if( !enable_nvmm )
-				ss << " ! nvvidconv name=vidconv ! video/x-raw";
+			if (mOptions.codecType != videoOptions::CODEC_OMX)
+				ss << "enable-max-performance=1 ";
+
+			if ( mOptions.deviceType == videoOptions::DEVICE_IP )
+				ss << "disable-dpb=1 ";
 		}
 
-		ss << " ! ";
+		ss << "! ";
+
+		// resize if requested
+		if( mCustomSize || mOptions.flipMethod != videoOptions::FLIP_NONE )
+		{
+		#if defined(__aarch64__)
+			ss << "nvvidconv name=vidconv";
+
+			if( mOptions.flipMethod != videoOptions::FLIP_NONE )
+				ss << " flip-method=" << (int)mOptions.flipMethod;
+			
+			ss << " ! video/x-raw";
+			
+		#elif defined(__x86_64__) || defined(__amd64__)
+			if( mOptions.flipMethod != videoOptions::FLIP_NONE )
+				ss << "videoflip method=" << videoOptions::FlipMethodToStr(mOptions.flipMethod) << " ! ";
+			
+			if( mOptions.width != 0 && mOptions.height != 0 )
+				ss << "videoscale ! ";
+			
+			ss << "video/x-raw";
+		#endif
+
+			if( enable_nvmm )
+				ss << "(" << GST_CAPS_FEATURE_MEMORY_NVMM << ")";
+
+			if( mOptions.width != 0 && mOptions.height != 0 )
+				ss << ", width=(int)" << mOptions.width << ", height=(int)" << mOptions.height << ", format=(string)NV12";
+
+			ss <<" ! ";
+		}
+		else
+		{
+			ss << "video/x-raw";
+			
+			if( enable_nvmm || mOptions.codecType == videoOptions::CODEC_V4L2 )
+			{
+				// add NVMM caps when requested, or if using V4L2 codecs
+				ss << "(" << GST_CAPS_FEATURE_MEMORY_NVMM << ")";
+				
+				// V4L2 codecs only output NVMM memory
+				// so if NVMM is disabled, put it through nvvidconv first
+				if( !enable_nvmm )
+					ss << " ! nvvidconv name=vidconv ! video/x-raw";
+			}
+
+			ss << " ! ";
+		}
 	}
 
 	// rate-limit if requested

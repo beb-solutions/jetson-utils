@@ -58,7 +58,7 @@ videoSource* videoSource::Create( const videoOptions& options )
 		else
 			src = imageLoader::Create(options);
 	}
-	else if( uri.protocol == "rtp" || uri.protocol == "rtsp" || uri.protocol == "webrtc" )
+	else if( uri.protocol == "rtp" || uri.protocol == "rtsp" || uri.protocol == "webrtc" || uri.protocol == "shm" )
 	{
 		src = gstDecoder::Create(options);
 	}

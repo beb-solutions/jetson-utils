@@ -96,6 +96,10 @@ bool URI::Parse( const char* uri )
 		{
 			protocol = "display";
 		}
+		else if( string == "shm" )
+		{
+			protocol = "shm";
+		}
 		else
 		{
 			LogError("URI -- invalid resource or file path:  %s\n", string.c_str());
@@ -150,6 +154,10 @@ bool URI::Parse( const char* uri )
 	else if( protocol == "file" )
 	{
 		extension = fileExtension(location);
+		path = location;
+	}
+	else if( protocol == "shm" )
+	{
 		path = location;
 	}
 	else

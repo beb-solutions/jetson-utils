@@ -76,6 +76,16 @@ public:
 	 * for input and output streams, respectively. The `--framerate=N` option sets it for both.
 	 */
 	float frameRate;
+
+	/**
+	 * The width of the source stream in pixels for e.g. shared memory streams.
+	*/
+	uint32_t source_width;
+
+	/**
+	 * The height of the source stream in pixels for e.g. shared memory streams.
+	*/
+	uint32_t source_height;
 	
 	/**
 	 * The number of frames that have been captured or output on this interface.
