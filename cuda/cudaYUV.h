@@ -52,7 +52,7 @@ cudaError_t cudaI420ToRGB(void* input, float3* output, size_t width, size_t heig
 /**
  * Convert a YUV I420 planar image to RGBA uchar4.
  */
-cudaError_t cudaI420ToRGBA(void* input, uchar4* output, size_t width, size_t height);
+cudaError_t cudaI420ToRGBA(void* input, uchar4* output, size_t width, size_t height, bool use_bgra);
 
 /**
  * Convert a YUV I420 planar image to RGB float4.

@@ -53,7 +53,8 @@ static inline __device__ float3 YUV2RGB(float Y, float U, float V)
 template <typename T, bool formatYV12>
 __global__ void I420ToRGB(uint8_t* srcImage, int srcPitch,
                           T* dstImage,     	int dstPitch,
-                          int width,         int height) 
+                          int width,         int height,
+						  bool use_bgra) 
 {
 	const int x = blockIdx.x * blockDim.x + threadIdx.x;
 	const int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -93,11 +94,14 @@ __global__ void I420ToRGB(uint8_t* srcImage, int srcPitch,
 
 	const float3 RGB = YUV2RGB(Y, U, V);
 
-	dstImage[y * width + x] = make_vec<T>(RGB.x, RGB.y, RGB.z, 255);
+	if (!use_bgra)
+		dstImage[y * width + x] = make_vec<T>(RGB.x, RGB.y, RGB.z, 255);
+	else
+		dstImage[y * width + x] = make_vec<T>(RGB.z, RGB.y, RGB.x, 255);
 }
 
 template <typename T, bool formatYV12>
-static cudaError_t launch420ToRGB(void* srcDev, T* dstDev, size_t width, size_t height) 
+static cudaError_t launch420ToRGB(void* srcDev, T* dstDev, size_t width, size_t height, bool use_bgra = false) 
 {
 	if( !srcDev || !dstDev )
 		return cudaErrorInvalidDevicePointer;
@@ -112,7 +116,7 @@ static cudaError_t launch420ToRGB(void* srcDev, T* dstDev, size_t width, size_t 
 	//const dim3 gridDim((width+(2*blockDim.x-1))/(2*blockDim.x), (height+(blockDim.y-1))/blockDim.y, 1);
 	const dim3 gridDim(iDivUp(width,blockDim.x), iDivUp(height, blockDim.y));
 
-	I420ToRGB<T, formatYV12><<<gridDim, blockDim>>>( (uint8_t*)srcDev, srcPitch, dstDev, dstPitch, width, height );
+	I420ToRGB<T, formatYV12><<<gridDim, blockDim>>>( (uint8_t*)srcDev, srcPitch, dstDev, dstPitch, width, height, use_bgra);
 
 	return CUDA(cudaGetLastError());
 }
@@ -131,9 +135,9 @@ cudaError_t cudaI420ToRGB(void* input, float3* output, size_t width, size_t heig
 }
 
 // cudaI420ToRGBA (uchar4)
-cudaError_t cudaI420ToRGBA(void* input, uchar4* output, size_t width, size_t height) 
+cudaError_t cudaI420ToRGBA(void* input, uchar4* output, size_t width, size_t height, bool use_bgra = false) 
 {
-    return launch420ToRGB<uchar4, false>(input, output, width, height);
+    return launch420ToRGB<uchar4, false>(input, output, width, height, use_bgra);
 }
 
 // cudaI420ToRGBA (float4)
