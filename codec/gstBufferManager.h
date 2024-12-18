@@ -35,7 +35,7 @@
 #if !GST_CHECK_VERSION(1,0,0)
 	#undef ENABLE_NVMM	// NVMM is only enabled for GStreamer 1.0 and newer
 #endif
-
+#endif
 
 #define GST_CAPS_FEATURE_MEMORY_NVMM "memory:NVMM"
 
