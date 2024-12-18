@@ -214,7 +214,7 @@ bool gstBufferManager::Enqueue( GstBuffer* gstBuffer, GstCaps* gstCaps )
 			return false;
 		}
 		
-		const bool nvmmReleaseFD = (g_strcmp0(gstMemory->allocator->mem_type, "nvfilter") != 0);	
+		const bool nvmmReleaseFD = false;// (g_strcmp0(gstMemory->allocator->mem_type, "nvfilter") != 0);	
 		
 		// update latest frame so capture thread can grab it
 		mNvmmMutex.Lock();
@@ -262,53 +262,6 @@ bool gstBufferManager::Enqueue( GstBuffer* gstBuffer, GstCaps* gstCaps )
 		mBufferYUV.Next(RingBuffer::Write);
 	}
 
-		// handle timestamps in either case (CPU or NVMM path)
-		size_t timestamp_size = sizeof(uint64_t);
-
-		// allocate timestamp ringbuffer (GPU only if not ZeroCopy)
-		if( !mTimestamps.Alloc(mOptions->numBuffers, timestamp_size, RingBuffer::ZeroCopy) )
-		{
-			LogError(LOG_GSTREAMER "gstBufferManager -- failed to allocate %u timestamp buffers (%zu bytes each)\n", mOptions->numBuffers, timestamp_size);
-			return false;
-		}
-
-		// copy to next timestamp ringbuffer
-		void* nextTimestamp = mTimestamps.Peek(RingBuffer::Write);
-
-		if( !nextTimestamp )
-		{
-			LogError(LOG_GSTREAMER "gstBufferManager -- failed to retrieve next timestamp ringbuffer for writing\n");
-			return false;
-		}
-
-		if (GST_BUFFER_DTS_IS_VALID(gstBuffer) || GST_BUFFER_PTS_IS_VALID(gstBuffer))
-		{
-			timestamp = GST_BUFFER_DTS_OR_PTS(gstBuffer);
-		}
-
-		memcpy(nextTimestamp, (void*)&timestamp, timestamp_size);
-		mTimestamps.Next(RingBuffer::Write);
-
-	mWaitEvent.Wake();
-	mFrameCount++;
-	
-#if GST_CHECK_VERSION(1,0,0)
-	gst_buffer_unmap(gstBuffer, &map);
-#endif
-	
-	return true;
-}
-
-
-// Dequeue
-int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeout )
-{
-	// wait until a new frame is recieved
-	if( !mWaitEvent.Wait(timeout) )
-		return 0;
-
-	void* latestYUV = NULL;
-	
 #ifdef ENABLE_NVMM
 	if( mNvmmUsed )
 	{
@@ -378,12 +331,27 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 		}
 
 		// allocate CUDA memory for the image
+		/*
 		if( !mNvmmCUDA || mNvmmSize != sizeYUV )
 		{
 			CUDA_FREE(mNvmmCUDA);
 			
 			if( CUDA_FAILED(cudaMalloc(&mNvmmCUDA, sizeYUV)) )
 				return -1;
+		}*/
+
+		if( !mBufferYUV.Alloc(mOptions->numBuffers, sizeYUV, RingBuffer::ZeroCopy) )
+		{
+			LogError(LOG_GSTREAMER "gstBufferManager -- failed to allocate %u image buffers (%zu bytes each)\n", mOptions->numBuffers, sizeYUV);
+			return false;
+		}
+
+		// copy to next image ringbuffer
+		mNvmmCUDA = mBufferYUV.Peek(RingBuffer::Write);
+		if( !mNvmmCUDA )
+		{
+			LogError(LOG_GSTREAMER "gstBufferManager -- failed to retrieve next image ringbuffer for writing\n");
+			return false;
 		}
 		
 		// copy arrays into linear memory (so our CUDA kernels can use it)
@@ -396,14 +364,69 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 		
 			planeOffset += planeSize[n];
 		}
-
-		latestYUV = mNvmmCUDA;
+		
+		//CUDA(cudaMemcpyAsync(nextBuffer, gstData, gstSize, cudaMemcpyKind::cudaMemcpyDeviceToDevice));
+		mBufferYUV.Next(RingBuffer::Write);
 		
 		CUDA(cudaGraphicsUnregisterResource(eglResource));
 		NvDestroyEGLImage(NULL, eglImage);
 		
 		if( nvmmReleaseFD )
 			NvReleaseFd(nvmmFD);
+	}
+#endif
+
+	// handle timestamps in either case (CPU or NVMM path)
+	size_t timestamp_size = sizeof(uint64_t);
+
+	// allocate timestamp ringbuffer (GPU only if not ZeroCopy)
+	if( !mTimestamps.Alloc(mOptions->numBuffers, timestamp_size, RingBuffer::ZeroCopy) )
+	{
+		LogError(LOG_GSTREAMER "gstBufferManager -- failed to allocate %u timestamp buffers (%zu bytes each)\n", mOptions->numBuffers, timestamp_size);
+		return false;
+	}
+
+	// copy to next timestamp ringbuffer
+	void* nextTimestamp = mTimestamps.Peek(RingBuffer::Write);
+
+	if( !nextTimestamp )
+	{
+		LogError(LOG_GSTREAMER "gstBufferManager -- failed to retrieve next timestamp ringbuffer for writing\n");
+		return false;
+	}
+
+	if (GST_BUFFER_DTS_IS_VALID(gstBuffer) || GST_BUFFER_PTS_IS_VALID(gstBuffer))
+	{
+		timestamp = GST_BUFFER_DTS_OR_PTS(gstBuffer);
+	}
+
+	memcpy(nextTimestamp, (void*)&timestamp, timestamp_size);
+	mTimestamps.Next(RingBuffer::Write);
+
+#if GST_CHECK_VERSION(1,0,0)
+	gst_buffer_unmap(gstBuffer, &map);
+#endif
+
+	mFrameCount++;
+
+	mWaitEvent.Wake();	
+	return true;
+}
+
+
+// Dequeue
+int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeout )
+{
+	// wait until a new frame is recieved
+	if( !mWaitEvent.Wait(timeout) )
+		return 0;
+
+	void* latestYUV = NULL;
+	
+#ifdef ENABLE_NVMM
+	if( mNvmmUsed )
+	{
+		latestYUV = mBufferYUV.Next(RingBuffer::ReadLatestOnce);
 	}
 #endif
 
