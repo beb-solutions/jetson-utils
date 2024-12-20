@@ -180,6 +180,13 @@ public:
 	int rtp_fec_payload;
 
 	/**
+	 * @brief Mirror shared memory name
+	 * The decoded stream will be mirrored to this shared memory.
+	 * The format is I420.
+	 */
+	std::string  mirror_shm;
+
+	/**
 	 * If true, create a secondary display stream for videoOutput streams.
 	*/
 	bool no_display = false;

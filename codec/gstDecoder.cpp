@@ -696,6 +696,11 @@ bool gstDecoder::buildLaunchStr()
 
 		ss << "! ";
 
+		if (mOptions.mirror_shm != "") {
+			ss << "tee name=m m. ! queue ! nvvidconv ! video/x-raw, format=(string)I420 ! ";
+			ss << "shmsink socket-path=" << mOptions.mirror_shm << " wait-for-connection=false m. ! queue ! ";
+		}
+
 		// resize if requested
 		if( mCustomSize || mOptions.flipMethod != videoOptions::FLIP_NONE )
 		{
