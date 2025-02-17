@@ -428,8 +428,74 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 		mLastTimestamp = *((uint64_t*)pLastTimestamp);
 	}
 
-	// output raw image if conversion format is unknown
-	if ( format == IMAGE_UNKNOWN )
+	void* gpu_data = NULL; // for user data
+	if (mBufferUserData.GetBufferSize() > 0) {
+		size_t num_bits = (mBufferUserData.GetBufferSize() << 3);
+		size_t num_values = num_bits * (1 << UD_ENC_FACTOR) * (1 << UD_ENC_FACTOR) / 4; // 1 value = 2x2 pixel
+
+		if (!mBufferUserDataHelper.Alloc(1, num_values, RingBuffer::ZeroCopy)) {
+			return false;
+		}
+
+		uint8_t* gpu_data = (uint8_t*)mBufferUserDataHelper.Next(RingBuffer::Write);
+		uint8_t* frame = (uint8_t*)latestYUV;
+		
+		// get data array
+		int y = 0; int n = 0; int p = mOptions->width; int x = 0;
+		for(int i=0; i < (num_values << 2); i+=2)
+		{
+			y = (i / p << 1);
+			n = y * p;
+			x = i - (i / p) * p;
+
+			gpu_data[i >> 1] = (uint8_t)((
+				(uint16_t)frame[n+x] + 
+				(uint16_t)frame[n+x+1] + 
+				(uint16_t)frame[n+p+x] + 
+				(uint16_t)frame[n+p+x+1]
+			) / 4);
+		}
+	
+		// get bits
+		uint8_t* data = (uint8_t*)mBufferUserData.Next(RingBuffer::Write);
+		memset(data, 0, mBufferUserData.GetBufferSize());
+				
+		int byte;
+		int bit;
+		uint8_t value;
+
+		//CUDA(cudaDeviceSynchronize());
+
+		for(int i=0; i<num_bits; i++) {
+			#if UD_ENC_FACTOR == 1
+				value = gpu_data[i];	
+			#elif UD_ENC_FACTOR == 2
+				int j = i << 1;
+				int off = mOptions->width >> 1;
+
+				value = ((int)gpu_data[j] + (int)gpu_data[j + 1] + (int)gpu_data[j + off] + (int)gpu_data[j + 1 + off]) >> 2;
+			#elif UD_ENC_FACTOR == 3
+				int j = i << 2;
+				int off = mOptions->width >> 1;
+
+				value = ((int)gpu_data[j] + (int)gpu_data[j + 1] + (int)gpu_data[j + 2] + (int)gpu_data[j + 3] +
+					(int)gpu_data[j + off] + (int)gpu_data[j + 1 + off] + (int)gpu_data[j + 2 + off] + (int)gpu_data[j + 3 + off] +
+					(int)gpu_data[j + (off << 1)] + (int)gpu_data[j + 1 + (off << 1)] + (int)gpu_data[j + 2 + (off << 1)] + (int)gpu_data[j + 3 + (off << 1)] +
+					(int)gpu_data[j + 3* off] + (int)gpu_data[j + 1 + 3* off] + (int)gpu_data[j + 2 + 3* off] + (int)gpu_data[j + 3 + 3* off]) >> 4;
+			#endif
+
+			byte = i >> 3;
+			bit = i - (byte << 3);
+
+			if (value > 127)
+				data[byte] |= (1 << bit); // set bit
+			else
+				data[byte] &= ~(1 << bit); // reset bit
+		}
+	}
+
+	// output raw image if conversion format is unknown or NV12
+	if ( format == IMAGE_UNKNOWN || format == IMAGE_NV12 )
 	{
 		*output = latestYUV;
 		return 1;
@@ -460,20 +526,8 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 			return -1;
 		}
 	} else {
-		void* gpu_data = NULL;
-
-		if (mBufferUserData.GetBufferSize() > 0) {
-			size_t num_values = (mBufferUserData.GetBufferSize() << 3) * UD_ENC_FACTOR + UD_ENC_FACTOR * (mOptions->width >> 1);
-
-			if (!mBufferUserDataHelper.Alloc(1, num_values, RingBuffer::ZeroCopy)) {
-				return false;
-			}
-
-			gpu_data = mBufferUserDataHelper.Next(RingBuffer::Write);
-		}
-
 		if( CUDA_FAILED(cudaConvertColor(latestYUV, mFormatYUV, nextRGB, format, mOptions->width, mOptions->height, 
-			gpu_data, mBufferUserDataHelper.GetBufferSize(), 0, mOptions->use_bgra)) )
+			NULL, 0, 0, mOptions->use_bgra)) )
 		{
 			LogError(LOG_GSTREAMER "gstBufferManager -- unsupported image format (%s)\n", imageFormatToStr(format));
 			LogError(LOG_GSTREAMER "                    supported formats are:\n");
@@ -481,7 +535,7 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 			
 			return -1;
 		}
-
+		/*
 		if (mBufferUserDataHelper.GetBufferSize() != 0) {
 			uint8_t* data = (uint8_t*)mBufferUserData.Next(RingBuffer::Write);
 			memset(data, 0, mBufferUserData.GetBufferSize());
@@ -522,7 +576,7 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 				else
 					data[byte] &= ~(1 << bit); // reset bit
 			}
-		}
+		}*/
 	}
 
 #if 0
