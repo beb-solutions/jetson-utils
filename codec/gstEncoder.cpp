@@ -429,7 +429,7 @@ bool gstEncoder::buildLaunchStr()
 			}
 
 			//ss << "udpsink blocksize=16384 max-bitrate=50000000 buffer-size=8388608 sync=false host=" << uri.location << " ";
-			ss << "udpsink max-bitrate=80000000 host=" << uri.location << " ";
+			ss << "udpsink max-bitrate=30000000 sync=false host=" << uri.location << " ";
 
 			if( uri.port != 0 )
 				ss << "port=" << uri.port;
@@ -728,7 +728,7 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 	// allocate color conversion buffer
 	const size_t i420Size = imageFormatSize(IMAGE_I420, width, height);
 
-	if( !mBufferYUV.Alloc(2, i420Size, RingBuffer::ZeroCopy) )
+	if( !mBufferYUV.Alloc(4, i420Size, RingBuffer::ZeroCopy) )
 	{
 		LogError(LOG_GSTREAMER "gstEncoder -- failed to allocate buffers (%zu bytes each)\n", i420Size);
 		enc_success = false;
