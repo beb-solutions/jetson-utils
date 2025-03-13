@@ -725,53 +725,57 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 		const bool substreams_success = videoOutput::Render(image, width, height, format); \
 		return enc_success & substreams_success;
 
-	// allocate color conversion buffer
 	const size_t i420Size = imageFormatSize(IMAGE_I420, width, height);
 
-	if( !mBufferYUV.Alloc(4, i420Size, RingBuffer::ZeroCopy) )
-	{
-		LogError(LOG_GSTREAMER "gstEncoder -- failed to allocate buffers (%zu bytes each)\n", i420Size);
-		enc_success = false;
-		render_end();
-	}
-
-	// perform colorspace conversion
-	void* nextYUV = mBufferYUV.Next(RingBuffer::Write);
-		
-	if ( mBufferUserData.GetBufferSize() == 0 && mOptions.flipMethod != videoOptions::FLIP_VERTICAL ) {
-		if( CUDA_FAILED(cudaConvertColor(image, format, nextYUV, IMAGE_I420, width, height)) )
+	if (format != imageFormat::IMAGE_I420) {
+		// allocate color conversion buffer
+		if( !mBufferYUV.Alloc(1, i420Size, RingBuffer::ZeroCopy) )
 		{
-			LogError(LOG_GSTREAMER "gstEncoder::Render() -- cudaConvertColor: unsupported image format (%s)\n", imageFormatToStr(format));
-			LogError(LOG_GSTREAMER "                        supported formats are:\n");
-			LogError(LOG_GSTREAMER "                            * rgb8\n");		
-			LogError(LOG_GSTREAMER "                            * rgba8\n");		
-			LogError(LOG_GSTREAMER "                            * rgb32f\n");		
-			LogError(LOG_GSTREAMER "                            * rgba32f\n");
-			
+			LogError(LOG_GSTREAMER "gstEncoder -- failed to allocate buffers (%zu bytes each)\n", i420Size);
 			enc_success = false;
 			render_end();
 		}
-	} else {
-		void* data = mBufferUserData.GetBufferSize() > 0 ? mBufferUserData.Next(RingBuffer::ReadLatest) : NULL;
-		if( CUDA_FAILED(cudaConvertColor(image, format, nextYUV, IMAGE_I420, width, height,
-		data, mBufferUserData.GetBufferSize(), (size_t)(mOptions.flipMethod == videoOptions::FLIP_VERTICAL), false)) )
-		{
-			LogError(LOG_GSTREAMER "gstEncoder::Render() -- cudaConvertColorCode: unsupported image format (%s)\n", imageFormatToStr(format));
-			LogError(LOG_GSTREAMER "                        supported formats are:\n");
-			LogError(LOG_GSTREAMER "                            * rgba8\n");		
-			
-			enc_success = false;
-			render_end();
-		}
-	}
 
-	CUDA(cudaDeviceSynchronize());	// TODO replace with cudaStream?
+		// perform colorspace conversion
+		void* nextYUV = mBufferYUV.Next(RingBuffer::Write);
+			
+		if ( mBufferUserData.GetBufferSize() == 0 && mOptions.flipMethod != videoOptions::FLIP_VERTICAL ) {
+			if( CUDA_FAILED(cudaConvertColor(image, format, nextYUV, IMAGE_I420, width, height)) )
+			{
+				LogError(LOG_GSTREAMER "gstEncoder::Render() -- cudaConvertColor: unsupported image format (%s)\n", imageFormatToStr(format));
+				LogError(LOG_GSTREAMER "                        supported formats are:\n");
+				LogError(LOG_GSTREAMER "                            * rgb8\n");		
+				LogError(LOG_GSTREAMER "                            * rgba8\n");		
+				LogError(LOG_GSTREAMER "                            * rgb32f\n");		
+				LogError(LOG_GSTREAMER "                            * rgba32f\n");
+				
+				enc_success = false;
+				render_end();
+			}
+		} else {
+			void* data = mBufferUserData.GetBufferSize() > 0 ? mBufferUserData.Next(RingBuffer::ReadLatest) : NULL;
+			if( CUDA_FAILED(cudaConvertColor(image, format, nextYUV, IMAGE_I420, width, height,
+			data, mBufferUserData.GetBufferSize(), (size_t)(mOptions.flipMethod == videoOptions::FLIP_VERTICAL), false)) )
+			{
+				LogError(LOG_GSTREAMER "gstEncoder::Render() -- cudaConvertColorCode: unsupported image format (%s)\n", imageFormatToStr(format));
+				LogError(LOG_GSTREAMER "                        supported formats are:\n");
+				LogError(LOG_GSTREAMER "                            * rgba8\n");		
+				
+				enc_success = false;
+				render_end();
+			}
+		}
+
+		CUDA(cudaDeviceSynchronize());	// TODO replace with cudaStream?
 	
-	// encode YUV buffer
-	enc_success = encodeYUV(nextYUV, i420Size);
+		// encode YUV buffer
+		enc_success = encodeYUV(nextYUV, i420Size);
 
-	// render sub-streams
-	render_end();	
+		// render sub-streams
+		render_end();
+	} else {
+		return encodeYUV(image, i420Size);
+	}
 }
 
 
