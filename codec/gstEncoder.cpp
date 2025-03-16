@@ -513,73 +513,6 @@ bool gstEncoder::encodeYUV( void* buffer, size_t size )
 {
 	if( !buffer || size == 0 )
 		return false;
-	
-	// confirm the stream is open
-	if( !mStreaming )
-	{
-		if( !Open() )
-			return false;
-	}
-
-	// check to see if data can be accepted
-	if( !mNeedData )
-	{
-		if( mOptions.frameCount % 25 == 0 )
-			LogVerbose(LOG_GSTREAMER "gstEncoder -- pipeline full, skipping frame %zu (%ux%u, %zu bytes)\n", mOptions.frameCount, mOptions.width, mOptions.height, size);
-		
-		return true;
-	}
-
-	// construct the buffer caps for this size image
-	if( !mBufferCaps || mChangedOptions )
-	{
-		if( !buildCapsStr() )
-		{
-			LogError(LOG_GSTREAMER "gstEncoder -- failed to build caps string\n");
-			return false;
-		}
-
-		mBufferCaps = gst_caps_from_string(mCapsStr.c_str());
-
-		if( !mBufferCaps )
-		{
-			LogError(LOG_GSTREAMER "gstEncoder -- failed to parse caps from string:\n");
-			LogError(LOG_GSTREAMER "   %s\n", mCapsStr.c_str());
-			return false;
-		}
-
-		if (mChangedOptions) {
-			GstElement* encoder = gst_bin_get_by_name(GST_BIN(mPipeline), "encoder");
-
-			if( mOptions.codecType == videoOptions::CODEC_CPU )
-			{
-				if( mOptions.codec == videoOptions::CODEC_H264 || mOptions.codec == videoOptions::CODEC_H265 )
-				{
-					g_object_set(encoder, "bitrate", mOptions.bitRate / 1000, NULL);	// x264enc/x265enc bitrates are in kbits
-				}
-				else if( mOptions.codec == videoOptions::CODEC_VP8 || mOptions.codec == videoOptions::CODEC_VP9 )
-				{
-					g_object_set(encoder, "target-bitrate", mOptions.bitRate, NULL);
-				}
-			}
-			else if( mOptions.codec != videoOptions::CODEC_MJPEG )
-			{
-				g_object_set(encoder, "bitrate", mOptions.bitRate, NULL);
-
-				if( mOptions.deviceType == videoOptions::DEVICE_IP )
-				{
-					if( mOptions.codecType == videoOptions::CODEC_V4L2 )
-						g_object_set(encoder, "vbv-size", (int)(mOptions.bitRate / 60.f * mOptions.frameRate), NULL);
-				}
-			}
-
-			mChangedOptions = false;
-		}
-
-	#if GST_CHECK_VERSION(1,0,0)
-		gst_app_src_set_caps(GST_APP_SRC(mAppSrc), mBufferCaps);
-	#endif
-	}
 
 #if GST_CHECK_VERSION(1,0,0)
 	// allocate gstreamer buffer memory
@@ -664,6 +597,13 @@ bool gstEncoder::encodeYUV( void* buffer, size_t size )
 // Render
 bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageFormat format )
 {	
+	// confirm the stream is open
+	if( !mStreaming )
+	{
+		if( !Open() )
+			return false;
+	}
+
 	// update the webrtc server if needed
 	if( mWebRTCServer != NULL && !mWebRTCServer->IsThreaded() )
 		mWebRTCServer->ProcessRequests();	
@@ -698,24 +638,68 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 				return false;
 			}
 		}
+	}
+
+	const size_t i420Size = imageFormatSize(IMAGE_I420, width, height);
+
+	// check to see if data can be accepted
+	if( !mNeedData )
+	{
+		if( mOptions.frameCount % 25 == 0 )
+			LogVerbose(LOG_GSTREAMER "gstEncoder -- pipeline full, skipping frame %zu (%ux%u, %zu bytes)\n", mOptions.frameCount, mOptions.width, mOptions.height, i420Size);
 		
-		/*// nvbufsurface: NvBufSurfaceCopy: buffer param mismatch
-		GstElement* vidconv = gst_bin_get_by_name(GST_BIN(mPipeline), "vidconv");
-		GstElement* encoder = gst_bin_get_by_name(GST_BIN(mPipeline), "encoder");
-		
-		if( vidconv != NULL && encoder != NULL )
+		return true;
+	}
+
+	// construct the buffer caps for this size image
+	if( !mBufferCaps || mChangedOptions )
+	{
+		if( !buildCapsStr() )
 		{
-			gst_element_set_state(mAppSrc, GST_STATE_NULL);
-			gst_element_set_state(vidconv, GST_STATE_NULL);
-			gst_element_set_state(encoder, GST_STATE_NULL);
-			gst_element_set_state(mAppSrc, GST_STATE_PLAYING);
-			gst_element_set_state(vidconv, GST_STATE_PLAYING);
-			gst_element_set_state(encoder, GST_STATE_PLAYING);
-			gst_object_unref(vidconv);
-			gst_object_unref(encoder);
-			usleep(500*1000);
-			checkMsgBus();
-		}*/
+			LogError(LOG_GSTREAMER "gstEncoder -- failed to build caps string\n");
+			return false;
+		}
+
+		mBufferCaps = gst_caps_from_string(mCapsStr.c_str());
+
+		if( !mBufferCaps )
+		{
+			LogError(LOG_GSTREAMER "gstEncoder -- failed to parse caps from string:\n");
+			LogError(LOG_GSTREAMER "   %s\n", mCapsStr.c_str());
+			return false;
+		}
+
+		if (mChangedOptions) {
+			GstElement* encoder = gst_bin_get_by_name(GST_BIN(mPipeline), "encoder");
+
+			if( mOptions.codecType == videoOptions::CODEC_CPU )
+			{
+				if( mOptions.codec == videoOptions::CODEC_H264 || mOptions.codec == videoOptions::CODEC_H265 )
+				{
+					g_object_set(encoder, "bitrate", mOptions.bitRate / 1000, NULL);	// x264enc/x265enc bitrates are in kbits
+				}
+				else if( mOptions.codec == videoOptions::CODEC_VP8 || mOptions.codec == videoOptions::CODEC_VP9 )
+				{
+					g_object_set(encoder, "target-bitrate", mOptions.bitRate, NULL);
+				}
+			}
+			else if( mOptions.codec != videoOptions::CODEC_MJPEG )
+			{
+				g_object_set(encoder, "bitrate", mOptions.bitRate, NULL);
+
+				if( mOptions.deviceType == videoOptions::DEVICE_IP )
+				{
+					if( mOptions.codecType == videoOptions::CODEC_V4L2 )
+						g_object_set(encoder, "vbv-size", (int)(mOptions.bitRate / 60.f * mOptions.frameRate), NULL);
+				}
+			}
+
+			mChangedOptions = false;
+		}
+
+	#if GST_CHECK_VERSION(1,0,0)
+		gst_app_src_set_caps(GST_APP_SRC(mAppSrc), mBufferCaps);
+	#endif
 	}
 
 	// error checking / return
@@ -724,8 +708,6 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 	#define render_end()	\
 		const bool substreams_success = videoOutput::Render(image, width, height, format); \
 		return enc_success & substreams_success;
-
-	const size_t i420Size = imageFormatSize(IMAGE_I420, width, height);
 
 	if (format != imageFormat::IMAGE_I420) {
 		// allocate color conversion buffer
@@ -774,7 +756,52 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 		// render sub-streams
 		render_end();
 	} else {
-		return encodeYUV(image, i420Size);
+		//return encodeYUV(image, i420Size);
+		GstBuffer* gstBuffer = gst_buffer_new_wrapped_full(
+			GstMemoryFlags::GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,
+			image,
+			i420Size,
+			0,
+			i420Size,
+			NULL,
+			NULL
+		);
+
+		// queue buffer to gstreamer
+		while( true )
+		{
+			GstFlowReturn ret;	
+			//GstBuffer* gstBuffer = (GstBuffer*)image;
+			g_signal_emit_by_name(mAppSrc, "push-buffer", gstBuffer, &ret);
+			
+			if( ret >= 0 )
+			{
+				gst_buffer_unref(gstBuffer);
+				break;
+			}
+			
+			LogError(LOG_GSTREAMER "gstEncoder -- an error occurred pushing appsrc buffer (result=%i '%s')\n", (int)ret, gst_flow_get_name(ret));
+			
+			// check to make sure the pipeline is still playing (some pipelines like RTSP server may disconnect)
+			GstState state = GST_STATE_VOID_PENDING;
+			gst_element_get_state(mPipeline, &state, NULL, GST_CLOCK_TIME_NONE);
+		
+			if( state != GST_STATE_PLAYING )
+			{
+				LogError(LOG_GSTREAMER "gstEncoder -- pipeline is in the '%s' state, restarting pipeline...\n", gst_element_state_get_name(state));
+				
+				mStreaming = false;
+				
+				if( !Open() )
+				{
+					gst_buffer_unref(gstBuffer);
+					return false;
+				}
+			}
+		}
+		
+		checkMsgBus();
+		return true;
 	}
 }
 
