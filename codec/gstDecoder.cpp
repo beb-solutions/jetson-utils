@@ -602,7 +602,7 @@ bool gstDecoder::buildLaunchStr()
 			ss << " rtpstorage size-time=" << 1200000 * mOptions.latency; // [ns] + 20%
 			ss << " ! rtpssrcdemux ! application/x-rtp, payload=96, clock-rate=90000, media=video, encoding-name=";
 
-			rtpfec << " ! rtpjitterbuffer do-lost=1 latency=" << mOptions.latency;
+			rtpfec << " ! rtpjitterbuffer do-lost=0 latency=" << mOptions.latency;
 			rtpfec << " ! rtpulpfecdec pt=" << mOptions.rtp_fec_payload << " ! ";
 		}
 		if( mOptions.codec == videoOptions::CODEC_H264 )
