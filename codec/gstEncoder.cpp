@@ -429,7 +429,7 @@ bool gstEncoder::buildLaunchStr()
 			}
 
 			//ss << "udpsink blocksize=16384 max-bitrate=50000000 buffer-size=8388608 sync=false host=" << uri.location << " ";
-			ss << "udpsink max-bitrate=30000000 sync=false host=" << uri.location << " ";
+			ss << "udpsink buffer-size=8388608 sync=false host=" << uri.location << " ";
 
 			if( uri.port != 0 )
 				ss << "port=" << uri.port;
