@@ -32,6 +32,7 @@
 
 #include "cudaColorspace.h"
 #include "cudaMappedMemory.h"
+#include "gstNvmmInput.h"
 
 #define GST_USE_UNSTABLE_API
 #include <gst/webrtc/webrtc.h>
@@ -88,6 +89,9 @@ gstEncoder::gstEncoder( const videoOptions& options ) : videoOutput(options)
 	mYUVLeaseNext    = 0;
 	mYUVLeaseSkipped = 0;
 
+	mNvmmInput  = NULL;
+	mNvmmFailed = false;
+
 	for( uint32_t n=0; n < YUVLeaseCount; n++ )
 	{
 		mYUVLeases[n].ptr  = NULL;
@@ -116,7 +120,9 @@ gstEncoder::~gstEncoder()
 	
 	destroyPipeline();
 
-	// the pipeline is gone, so no GstBuffer references the leased buffers anymore
+	// the pipeline is gone, so no GstBuffer references the surfaces or leased buffers anymore
+	delete mNvmmInput;
+
 	for( uint32_t n=0; n < YUVLeaseCount; n++ )
 	{
 		if( mYUVLeases[n].ptr != NULL )
@@ -166,6 +172,15 @@ gstEncoder::YUVLease* gstEncoder::leaseYUV( size_t size )
 void gstEncoder::onYUVRelease( void* user_data )
 {
 	((YUVLease*)user_data)->busy = false;
+}
+
+
+// useNvmmInput
+bool gstEncoder::useNvmmInput() const
+{
+	return !mNvmmFailed && mOptions.codecType == videoOptions::CODEC_V4L2 &&
+		  (mOptions.codec == videoOptions::CODEC_H264 || mOptions.codec == videoOptions::CODEC_H265) &&
+		  gstNvmmInput::IsEnabled();
 }
 
 
@@ -349,9 +364,13 @@ bool gstEncoder::buildCapsStr()
 
 #if GST_CHECK_VERSION(1,0,0)
 	ss << "video/x-raw";
+
+	if( useNvmmInput() )
+		ss << "(memory:NVMM)";
+
 	ss << ", width=" << GetWidth();
 	ss << ", height=" << GetHeight();
-	ss << ", format=(string)I420";
+	ss << ", format=(string)" << (useNvmmInput() ? "NV12" : "I420");
 	ss << ", framerate=" << (int)mOptions.frameRate << "/1";
 #else
 	ss << "video/x-raw-yuv";
@@ -393,8 +412,8 @@ bool gstEncoder::buildLaunchStr()
 		return false;
 	}
 	
-	// the V4L2 encoders expect NVMM memory, so use nvvidconv to convert it
-	if( mOptions.codecType == videoOptions::CODEC_V4L2 && mOptions.codec != videoOptions::CODEC_MJPEG )
+	// the V4L2 encoders expect NVMM memory, so use nvvidconv to convert it (unless the input is NVMM already)
+	if( mOptions.codecType == videoOptions::CODEC_V4L2 && mOptions.codec != videoOptions::CODEC_MJPEG && !useNvmmInput() )
 		ss << "nvvidconv name=vidconv ! video/x-raw(memory:NVMM) ! ";
 	
 	// setup the encoder and options
@@ -794,6 +813,44 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 	#define render_end()	\
 		const bool substreams_success = videoOutput::Render(image, width, height, format); \
 		return enc_success & substreams_success;
+
+	if( format == IMAGE_RGBA8 && useNvmmInput() )
+	{
+		if( !mNvmmInput )
+			mNvmmInput = new gstNvmmInput();
+
+		void* data = mBufferUserData.GetBufferSize() > 0 ? mBufferUserData.Next(RingBuffer::ReadLatest) : NULL;
+		bool busy = false;
+
+		GstBuffer* gstBuffer = mNvmmInput->Render(image, width, height, data, mBufferUserData.GetBufferSize(),
+										  mOptions.flipMethod == videoOptions::FLIP_VERTICAL, &busy);
+
+		if( gstBuffer != NULL || busy )
+		{
+			if( busy && mYUVLeaseSkipped++ == 0 )
+				LogWarning(LOG_GSTREAMER "gstEncoder -- encoder pipeline is behind, skipping frames\n");
+
+			enc_success = busy ? true : pushBuffer(gstBuffer);
+			render_end();
+		}
+
+		// rebuild the pipeline with I420 input and skip this frame
+		LogError(LOG_GSTREAMER "gstEncoder -- NVMM input failed, switching to I420 input\n");
+
+		mNvmmFailed = true;
+
+		if( mBufferCaps != NULL )
+		{
+			gst_caps_unref(mBufferCaps);
+			mBufferCaps = NULL;
+		}
+
+		destroyPipeline();
+		mStreaming = false;
+
+		enc_success = initPipeline() && Open();
+		render_end();
+	}
 
 	if (format != imageFormat::IMAGE_I420) {
 		// lease a color conversion buffer: appsrc hands it to the pipeline without a copy

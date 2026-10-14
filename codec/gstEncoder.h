@@ -30,6 +30,9 @@
 #include <atomic>
 
 
+class gstNvmmInput;
+
+
 /**
  * Encoder VBV size in bits: 0.15 s of the bitrate, independent of the frame rate
  * (9 frames at 60 fps). Bounds the size of a single frame and with it the time it
@@ -180,6 +183,7 @@ protected:
 	bool buildLaunchStr();
 	bool encodeYUV( void* buffer, size_t size );
 	bool pushBuffer( GstBuffer* gstBuffer );
+	bool useNvmmInput() const;
 
 	static int vbvSize( uint32_t bitRate )	{ return (int)(bitRate * GST_ENCODER_VBV_SECONDS); }
 
@@ -227,6 +231,9 @@ protected:
 	YUVLease mYUVLeases[YUVLeaseCount];
 	uint32_t mYUVLeaseNext;
 	uint64_t mYUVLeaseSkipped;
+
+	gstNvmmInput* mNvmmInput;	/**< NV12 NVMM input for the V4L2 encoders */
+	bool          mNvmmFailed;
 };
  
  
