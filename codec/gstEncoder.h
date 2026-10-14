@@ -27,6 +27,16 @@
 #include "videoOutput.h"
 #include "RingBuffer.h"
 
+#include <atomic>
+
+
+/**
+ * Encoder VBV size in bits: 0.15 s of the bitrate, independent of the frame rate
+ * (9 frames at 60 fps). Bounds the size of a single frame and with it the time it
+ * needs on a link at the target bitrate.
+ */
+#define GST_ENCODER_VBV_SECONDS 0.15
+
 
 // Forward declarations
 class RTSPServer;
@@ -169,6 +179,26 @@ protected:
 	bool buildCapsStr();
 	bool buildLaunchStr();
 	bool encodeYUV( void* buffer, size_t size );
+	bool pushBuffer( GstBuffer* gstBuffer );
+
+	static int vbvSize( uint32_t bitRate )	{ return (int)(bitRate * GST_ENCODER_VBV_SECONDS); }
+
+	/**
+	 * I420 buffer that is handed to appsrc without a copy and stays
+	 * leased until the pipeline releases the wrapping GstBuffer.
+	 */
+	struct YUVLease
+	{
+		void*  ptr;
+		size_t size;
+		std::atomic<bool> busy;
+	};
+
+	static const uint32_t YUVLeaseCount = 4;
+
+	YUVLease* leaseYUV( size_t size );
+	bool encodeLeasedYUV( YUVLease* lease );
+	static void onYUVRelease( void* user_data );
 	
 	// appsrc callbacks
 	static void onNeedData( GstElement* pipeline, uint32_t size, void* user_data );
@@ -193,6 +223,10 @@ protected:
 
 	RingBuffer  mBufferUserData;
 	bool		mChangedOptions;
+
+	YUVLease mYUVLeases[YUVLeaseCount];
+	uint32_t mYUVLeaseNext;
+	uint64_t mYUVLeaseSkipped;
 };
  
  

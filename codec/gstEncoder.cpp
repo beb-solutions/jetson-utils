@@ -31,6 +31,7 @@
 #include "logging.h"
 
 #include "cudaColorspace.h"
+#include "cudaMappedMemory.h"
 
 #define GST_USE_UNSTABLE_API
 #include <gst/webrtc/webrtc.h>
@@ -83,6 +84,16 @@ gstEncoder::gstEncoder( const videoOptions& options ) : videoOutput(options)
 
 	mBufferYUV.SetThreaded(false);
 	mBufferUserData.SetThreaded(false);
+
+	mYUVLeaseNext    = 0;
+	mYUVLeaseSkipped = 0;
+
+	for( uint32_t n=0; n < YUVLeaseCount; n++ )
+	{
+		mYUVLeases[n].ptr  = NULL;
+		mYUVLeases[n].size = 0;
+		mYUVLeases[n].busy = false;
+	}
 }
 
 
@@ -104,6 +115,57 @@ gstEncoder::~gstEncoder()
 	}
 	
 	destroyPipeline();
+
+	// the pipeline is gone, so no GstBuffer references the leased buffers anymore
+	for( uint32_t n=0; n < YUVLeaseCount; n++ )
+	{
+		if( mYUVLeases[n].ptr != NULL )
+			CUDA(cudaFreeHost(mYUVLeases[n].ptr));
+	}
+}
+
+
+// leaseYUV
+gstEncoder::YUVLease* gstEncoder::leaseYUV( size_t size )
+{
+	for( uint32_t i=0; i < YUVLeaseCount; i++ )
+	{
+		const uint32_t n = (mYUVLeaseNext + i) % YUVLeaseCount;
+		YUVLease* lease = &mYUVLeases[n];
+
+		if( lease->busy )
+			continue;
+
+		if( lease->size != size )
+		{
+			if( lease->ptr != NULL )
+				CUDA(cudaFreeHost(lease->ptr));
+
+			lease->ptr  = NULL;
+			lease->size = 0;
+
+			if( !cudaAllocMapped(&lease->ptr, size) )
+			{
+				LogError(LOG_GSTREAMER "gstEncoder -- failed to allocate buffers (%zu bytes each)\n", size);
+				return NULL;
+			}
+
+			lease->size = size;
+		}
+
+		lease->busy   = true;
+		mYUVLeaseNext = (n + 1) % YUVLeaseCount;
+		return lease;
+	}
+
+	return NULL;
+}
+
+
+// onYUVRelease
+void gstEncoder::onYUVRelease( void* user_data )
+{
+	((YUVLease*)user_data)->busy = false;
 }
 
 
@@ -363,7 +425,7 @@ bool gstEncoder::buildLaunchStr()
 		if( mOptions.deviceType == videoOptions::DEVICE_IP )
 		{
 			if( mOptions.codecType == videoOptions::CODEC_V4L2 )
-				ss << "insert-sps-pps=1 insert-vui=1 idrinterval=30 vbv-size=" << (int)(mOptions.bitRate / 60.f * mOptions.frameRate) << " ";
+				ss << "insert-sps-pps=1 insert-vui=1 idrinterval=30 vbv-size=" << vbvSize(mOptions.bitRate) << " ";
 			else if( mOptions.codecType == videoOptions::CODEC_OMX )
 				ss << "insert-sps-pps=1 insert-vui=1 ";
 		}
@@ -557,6 +619,29 @@ bool gstEncoder::encodeYUV( void* buffer, size_t size )
 	memcpy(GST_BUFFER_DATA(gstBuffer), buffer, size);
 #endif
 
+	return pushBuffer(gstBuffer);
+}
+
+
+// encodeLeasedYUV
+bool gstEncoder::encodeLeasedYUV( YUVLease* lease )
+{
+	// wrap the leased buffer without a copy, onYUVRelease() returns it when the pipeline is done with it
+	GstBuffer* gstBuffer = gst_buffer_new_wrapped_full((GstMemoryFlags)0, lease->ptr, lease->size, 0, lease->size, lease, onYUVRelease);
+
+	if( !gstBuffer )
+	{
+		lease->busy = false;
+		return false;
+	}
+
+	return pushBuffer(gstBuffer);
+}
+
+
+// pushBuffer
+bool gstEncoder::pushBuffer( GstBuffer* gstBuffer )
+{
 	// queue buffer to gstreamer
 	while( true )
 	{
@@ -690,7 +775,7 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 				if( mOptions.deviceType == videoOptions::DEVICE_IP )
 				{
 					if( mOptions.codecType == videoOptions::CODEC_V4L2 )
-						g_object_set(encoder, "vbv-size", (int)(mOptions.bitRate / 60.f * mOptions.frameRate), NULL);
+						g_object_set(encoder, "vbv-size", vbvSize(mOptions.bitRate), NULL);
 				}
 			}
 
@@ -710,16 +795,21 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 		return enc_success & substreams_success;
 
 	if (format != imageFormat::IMAGE_I420) {
-		// allocate color conversion buffer
-		if( !mBufferYUV.Alloc(1, i420Size, RingBuffer::ZeroCopy) )
+		// lease a color conversion buffer: appsrc hands it to the pipeline without a copy
+		YUVLease* lease = leaseYUV(i420Size);
+
+		if( !lease )
 		{
-			LogError(LOG_GSTREAMER "gstEncoder -- failed to allocate buffers (%zu bytes each)\n", i420Size);
-			enc_success = false;
+			// all buffers are still queued in the pipeline: skip this frame instead of growing the queue
+			if( mYUVLeaseSkipped++ == 0 )
+				LogWarning(LOG_GSTREAMER "gstEncoder -- encoder pipeline is behind, skipping frames\n");
+
+			enc_success = true;
 			render_end();
 		}
 
 		// perform colorspace conversion
-		void* nextYUV = mBufferYUV.Next(RingBuffer::Write);
+		void* nextYUV = lease->ptr;
 			
 		if ( mBufferUserData.GetBufferSize() == 0 && mOptions.flipMethod != videoOptions::FLIP_VERTICAL ) {
 			if( CUDA_FAILED(cudaConvertColor(image, format, nextYUV, IMAGE_I420, width, height)) )
@@ -731,6 +821,7 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 				LogError(LOG_GSTREAMER "                            * rgb32f\n");		
 				LogError(LOG_GSTREAMER "                            * rgba32f\n");
 				
+				lease->busy = false;
 				enc_success = false;
 				render_end();
 			}
@@ -743,6 +834,7 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 				LogError(LOG_GSTREAMER "                        supported formats are:\n");
 				LogError(LOG_GSTREAMER "                            * rgba8\n");		
 				
+				lease->busy = false;
 				enc_success = false;
 				render_end();
 			}
@@ -751,7 +843,7 @@ bool gstEncoder::Render( void* image, uint32_t width, uint32_t height, imageForm
 		CUDA(cudaDeviceSynchronize());	// TODO replace with cudaStream?
 	
 		// encode YUV buffer
-		enc_success = encodeYUV(nextYUV, i420Size);
+		enc_success = encodeLeasedYUV(lease);
 
 		// render sub-streams
 		render_end();
