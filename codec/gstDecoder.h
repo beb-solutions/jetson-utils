@@ -153,6 +153,10 @@ protected:
 	static GstFlowReturn onPreroll(_GstAppSink* sink, void* user_data);
 	static GstFlowReturn onBuffer(_GstAppSink* sink, void* user_data);
 
+	// RTP callbacks
+	static GstCaps* onRequestPtMap( GstElement* jitterbuffer, guint pt, void* user_data );
+	static GstPadProbeReturn onDepayBuffer( GstPad* pad, GstPadProbeInfo* info, void* user_data );
+
 	// WebRTC callbacks
 	static void onWebsocketMessage( WebRTCPeer* peer, const char* message, size_t message_size, void* user_data );
 

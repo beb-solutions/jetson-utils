@@ -312,6 +312,43 @@ bool gstDecoder::initPipeline()
 	
 	mAppSink = appsink;
 
+	// RTP with FEC: connect the decoder to the packet storage and map the FEC payload type
+	GstElement* fecdec  = gst_bin_get_by_name(GST_BIN(pipeline), "fecdec");
+	GstElement* storage = gst_bin_get_by_name(GST_BIN(pipeline), "fecstorage");
+	GstElement* jitter  = gst_bin_get_by_name(GST_BIN(pipeline), "jitter");
+
+	if( fecdec != NULL && storage != NULL )
+	{
+		GObject* internalStorage = NULL;
+		g_object_get(storage, "internal-storage", &internalStorage, NULL);
+		g_object_set(fecdec, "storage", internalStorage, NULL);
+
+		if( internalStorage != NULL )
+			g_object_unref(internalStorage);
+	}
+
+	if( jitter != NULL )
+		g_signal_connect(jitter, "request-pt-map", G_CALLBACK(onRequestPtMap), this);
+
+	// rtpulpfecdec passes the FEC packets on, and the depayloader would parse them as video
+	GstElement* depay = gst_bin_get_by_name(GST_BIN(pipeline), "depay");
+
+	if( depay != NULL )
+	{
+		GstPad* pad = gst_element_get_static_pad(depay, "sink");
+
+		if( pad != NULL )
+		{
+			gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, onDepayBuffer, this, NULL);
+			gst_object_unref(pad);
+		}
+	}
+
+	if( fecdec )  gst_object_unref(fecdec);
+	if( storage ) gst_object_unref(storage);
+	if( jitter )  gst_object_unref(jitter);
+	if( depay )   gst_object_unref(depay);
+
 	// setup callbacks
 	GstAppSinkCallbacks cb;
 	memset(&cb, 0, sizeof(GstAppSinkCallbacks));
@@ -498,6 +535,39 @@ bool gstDecoder::discover()
 }
 
 
+// onRequestPtMap
+GstCaps* gstDecoder::onRequestPtMap( GstElement* jitterbuffer, guint pt, void* user_data )
+{
+	gstDecoder* dec = (gstDecoder*)user_data;
+
+	if( pt != 96 && pt != dec->mOptions.rtp_fec_payload )
+		return NULL;
+
+	return gst_caps_new_simple("application/x-rtp",
+						  "media", G_TYPE_STRING, "video",
+						  "clock-rate", G_TYPE_INT, 90000,
+						  "encoding-name", G_TYPE_STRING, videoOptions::CodecToStr(dec->mOptions.codec),
+						  "payload", G_TYPE_INT, (int)pt, NULL);
+}
+
+
+// onDepayBuffer
+GstPadProbeReturn gstDecoder::onDepayBuffer( GstPad* pad, GstPadProbeInfo* info, void* user_data )
+{
+	gstDecoder* dec = (gstDecoder*)user_data;
+	GstBuffer* buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+	GstMapInfo map;
+
+	if( buffer == NULL || !gst_buffer_map(buffer, &map, GST_MAP_READ) )
+		return GST_PAD_PROBE_OK;
+
+	const bool fec = map.size >= 2 && (map.data[1] & 0x7f) == dec->mOptions.rtp_fec_payload;
+	gst_buffer_unmap(buffer, &map);
+
+	return fec ? GST_PAD_PROBE_DROP : GST_PAD_PROBE_OK;
+}
+
+
 // buildLaunchStr
 bool gstDecoder::buildLaunchStr()
 {
@@ -603,17 +673,20 @@ bool gstDecoder::buildLaunchStr()
 			ss << " caps=\"application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)";
 			rtpfec << "\" ! ";
 		} else {
+			// rtpulpfecdec recovers a lost packet from the stored packets of its FEC group; the jitterbuffer
+			// reports losses (do-lost) and passes the FEC packets (onRequestPtMap) instead of waiting for
+			// their sequence numbers
 			ss << " caps=\"application/x-rtp,payload=96,clock-rate=(int)90000\" !";
-			ss << " rtpstorage size-time=" << 1200000 * mOptions.latency; // [ns] + 20%
+			ss << " rtpstorage name=fecstorage size-time=" << (uint64_t)(mOptions.latency + 50) * 1000000;	// [ns]
 			ss << " ! rtpssrcdemux ! application/x-rtp, payload=96, clock-rate=90000, media=video, encoding-name=";
 
-			rtpfec << " ! rtpjitterbuffer do-lost=0 latency=" << mOptions.latency;
-			rtpfec << " ! rtpulpfecdec pt=" << mOptions.rtp_fec_payload << " ! ";
+			rtpfec << " ! rtpjitterbuffer name=jitter do-lost=1 latency=" << mOptions.latency;
+			rtpfec << " ! rtpulpfecdec name=fecdec pt=" << mOptions.rtp_fec_payload << " ! ";
 		}
 		if( mOptions.codec == videoOptions::CODEC_H264 )
-			ss << "H264" << rtpfec.str() << "rtph264depay ! ";
+			ss << "H264" << rtpfec.str() << "rtph264depay name=depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_H265 )
-			ss << "H265" << rtpfec.str() << "rtph265depay ! ";
+			ss << "H265" << rtpfec.str() << "rtph265depay name=depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_VP8 )
 			ss << "VP8" << rtpfec.str() << "rtpvp8depay ! ";
 		else if( mOptions.codec == videoOptions::CODEC_VP9 )
