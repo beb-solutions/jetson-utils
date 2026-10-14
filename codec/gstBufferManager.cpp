@@ -35,7 +35,27 @@
 
 #if NV_TENSORRT_MAJOR > 8 || (NV_TENSORRT_MAJOR == 8 && NV_TENSORRT_MINOR >= 4)
 #include <nvbufsurface.h>   // JetPack 5
+#define NVMM_NVBUFSURFACE   // map NVMM buffers with the NvBufSurface API
 #endif
+
+#include <pthread.h>
+#include <stdlib.h>
+#include <mutex>
+
+// Applications may end with exit() while the streaming threads still deliver frames
+// (lirecon-vms calls it from its signal handler). The exit handlers of the CUDA runtime
+// and EGL tear them down then, and copyNvmm() must not use them anymore: it crashed in
+// 3 of 4 shutdowns on Xavier NX. nvmmExitHandler() is registered after CUDA and EGL were
+// set up, so it runs before their teardown; it waits for running copies and stops new ones.
+static pthread_rwlock_t nvmmExitLock = PTHREAD_RWLOCK_INITIALIZER;
+static bool nvmmExiting = false;
+
+static void nvmmExitHandler()
+{
+	pthread_rwlock_wrlock(&nvmmExitLock);
+	nvmmExiting = true;
+	pthread_rwlock_unlock(&nvmmExitLock);
+}
 #endif
 
 
@@ -49,11 +69,7 @@ gstBufferManager::gstBufferManager( videoOptions* options )
 	mNvmmUsed   = false;
 	
 #ifdef ENABLE_NVMM
-	mNvmmFD        = -1;
-	mNvmmEGL       = NULL;
-	mNvmmCUDA      = NULL;
-	mNvmmSize      = 0;
-	mNvmmReleaseFD = false;
+	mNvmmStream = NULL;
 #endif
 	
 	mBufferRGB.SetThreaded(false);
@@ -66,8 +82,183 @@ gstBufferManager::gstBufferManager( videoOptions* options )
 // destructor
 gstBufferManager::~gstBufferManager()
 {
-	
+#ifdef ENABLE_NVMM
+	if( mNvmmStream != NULL )
+		cudaStreamDestroy(mNvmmStream);
+#endif
 }
+
+
+#ifdef ENABLE_NVMM
+// copyNvmm
+bool gstBufferManager::copyNvmm( void* nvmmData )
+{
+	pthread_rwlock_rdlock(&nvmmExitLock);
+
+	if( nvmmExiting )
+	{
+		pthread_rwlock_unlock(&nvmmExitLock);
+		return false;
+	}
+
+	const bool copied = copyNvmmLocked(nvmmData);
+	pthread_rwlock_unlock(&nvmmExitLock);
+
+	if( copied )
+	{
+		static std::once_flag exitHandlerOnce;
+		std::call_once(exitHandlerOnce, []() { atexit(nvmmExitHandler); });
+	}
+
+	return copied;
+}
+
+
+// copyNvmmLocked
+bool gstBufferManager::copyNvmmLocked( void* nvmmData )
+{
+	// map the NVMM surface as EGLImage
+#ifdef NVMM_NVBUFSURFACE
+	NvBufSurface* surf = (NvBufSurface*)nvmmData;
+
+	if( !surf || surf->numFilled < 1 || NvBufSurfaceMapEglImage(surf, 0) != 0 )
+	{
+		LogError(LOG_GSTREAMER "gstBufferManager -- failed to map EGLImage from NVMM buffer\n");
+		return false;
+	}
+
+	EGLImageKHR eglImage = surf->surfaceList[0].mappedAddr.eglImage;
+#else
+	int nvmmFD = -1;
+
+	if( ExtractFdFromNvBuffer(nvmmData, &nvmmFD) != 0 )
+	{
+		LogError(LOG_GSTREAMER "gstBufferManager -- failed to get FD from NVMM memory\n");
+		return false;
+	}
+
+	EGLImageKHR eglImage = NvEGLImageFromFd(NULL, nvmmFD);
+#endif
+
+	auto unmapImage = [&]()
+	{
+	#ifdef NVMM_NVBUFSURFACE
+		NvBufSurfaceUnMapEglImage(surf, 0);
+	#else
+		if( eglImage != NULL )
+			NvDestroyEGLImage(NULL, eglImage);
+
+		NvReleaseFd(nvmmFD);
+	#endif
+	};
+
+	if( !eglImage )
+	{
+		LogError(LOG_GSTREAMER "gstBufferManager -- failed to map EGLImage from NVMM buffer\n");
+		unmapImage();
+		return false;
+	}
+
+	// map EGLImage into CUDA
+	cudaGraphicsResource* eglResource = NULL;
+	cudaEglFrame eglFrame;
+
+	if( CUDA_FAILED(cudaGraphicsEGLRegisterImage(&eglResource, eglImage, cudaGraphicsRegisterFlagsReadOnly)) )
+	{
+		unmapImage();
+		return false;
+	}
+
+	auto release = [&]()
+	{
+		CUDA(cudaGraphicsUnregisterResource(eglResource));
+		unmapImage();
+	};
+
+	if( CUDA_FAILED(cudaGraphicsResourceGetMappedEglFrame(&eglFrame, eglResource, 0, 0)) )
+	{
+		release();
+		return false;
+	}
+
+	if( eglFrame.planeDesc[0].width != mOptions->width || eglFrame.planeDesc[0].height != mOptions->height )
+	{
+		LogError(LOG_GSTREAMER "gstBufferManager -- NVMM EGLImage dimensions mismatch (%ux%u when expected %ux%u)\n", eglFrame.planeDesc[0].width, eglFrame.planeDesc[0].height, mOptions->width, mOptions->height);
+		release();
+		return false;
+	}
+
+	// planes are packed tightly one after another (e.g. NV12: Y @ full res, UV @ half res),
+	// which is the same layout as the CPU path delivers
+	const uint32_t maxPlanes = 3;
+	const uint32_t planeCount = eglFrame.planeCount < maxPlanes ? eglFrame.planeCount : maxPlanes;
+	size_t planeWidthBytes[maxPlanes];
+	size_t sizeYUV = 0;
+
+	if( mFrameCount == 0 && eglFrame.planeCount != 2 )
+		LogWarning(LOG_GSTREAMER "gstBufferManager -- unexpected number of planes in NVMM buffer (%u vs 2 expected)\n", eglFrame.planeCount);
+
+	for( uint32_t n=0; n < planeCount; n++ )
+	{
+		const cudaChannelFormatDesc& desc = eglFrame.planeDesc[n].channelDesc;
+		size_t bytesPerElement = (desc.x + desc.y + desc.z + desc.w) / 8;
+
+		if( bytesPerElement == 0 )
+			bytesPerElement = eglFrame.planeDesc[n].numChannels;  // 8-bit channels
+
+		planeWidthBytes[n] = (size_t)eglFrame.planeDesc[n].width * bytesPerElement;
+		sizeYUV += planeWidthBytes[n] * eglFrame.planeDesc[n].height;
+	}
+
+	if( !mBufferYUV.Alloc(mOptions->numBuffers, sizeYUV, RingBuffer::ZeroCopy) )
+	{
+		LogError(LOG_GSTREAMER "gstBufferManager -- failed to allocate %u image buffers (%zu bytes each)\n", mOptions->numBuffers, sizeYUV);
+		release();
+		return false;
+	}
+
+	uint8_t* nextBuffer = (uint8_t*)mBufferYUV.Peek(RingBuffer::Write);
+
+	if( !nextBuffer )
+	{
+		LogError(LOG_GSTREAMER "gstBufferManager -- failed to retrieve next image ringbuffer for writing\n");
+		release();
+		return false;
+	}
+
+	if( !mNvmmStream && CUDA_FAILED(cudaStreamCreateWithFlags(&mNvmmStream, cudaStreamNonBlocking)) )
+	{
+		release();
+		return false;
+	}
+
+	// copy the planes into the ringbuffer on the GPU (block-linear arrays or pitch-linear memory)
+	size_t planeOffset = 0;
+	bool copied = true;
+
+	for( uint32_t n=0; n < planeCount && copied; n++ )
+	{
+		const size_t height = eglFrame.planeDesc[n].height;
+
+		if( eglFrame.frameType == cudaEglFrameTypeArray )
+			copied = !CUDA_FAILED(cudaMemcpy2DFromArrayAsync(nextBuffer + planeOffset, planeWidthBytes[n], eglFrame.frame.pArray[n], 0, 0, planeWidthBytes[n], height, cudaMemcpyDeviceToDevice, mNvmmStream));
+		else
+			copied = !CUDA_FAILED(cudaMemcpy2DAsync(nextBuffer + planeOffset, planeWidthBytes[n], eglFrame.frame.pPitch[n].ptr, eglFrame.frame.pPitch[n].pitch, planeWidthBytes[n], height, cudaMemcpyDeviceToDevice, mNvmmStream));
+
+		planeOffset += planeWidthBytes[n] * height;
+	}
+
+	// the frame must be complete before the surface is released and the frame is published
+	copied = copied && !CUDA_FAILED(cudaStreamSynchronize(mNvmmStream));
+	release();
+
+	if( !copied )
+		return false;
+
+	mBufferYUV.Next(RingBuffer::Write);
+	return true;
+}
+#endif
 
 
 // Enqueue
@@ -159,83 +350,23 @@ bool gstBufferManager::Enqueue( GstBuffer* gstBuffer, GstCaps* gstCaps )
 	//LogDebug(LOG_GSTREAMER "gstBufferManager -- recieved %ix%i frame (%zu bytes)\n", width, height, gstSize);
 		
 #ifdef ENABLE_NVMM
-	// check for NVMM buffer	
+	// check for NVMM buffer
 	GstCapsFeatures* gstCapsFeatures = gst_caps_get_features(gstCaps, 0);
-	
-	if( gst_caps_features_contains(gstCapsFeatures, GST_CAPS_FEATURE_MEMORY_NVMM))
+	mNvmmUsed = gst_caps_features_contains(gstCapsFeatures, GST_CAPS_FEATURE_MEMORY_NVMM);
+
+	if( mNvmmUsed )
 	{
-		mNvmmUsed = true;
-		int nvmmFD = -1;
-		
 		if( mFrameCount == 0 )
 			LogVerbose(LOG_GSTREAMER "gstBufferManager -- recieved NVMM memory\n");
-	
-	#if NV_TENSORRT_MAJOR > 8 || (NV_TENSORRT_MAJOR == 8 && NV_TENSORRT_MINOR >= 4)
-		NvBufSurface* surf = (NvBufSurface*)map.data;
-		nvmmFD = surf->surfaceList[0].bufferDesc;
-	#else
-		if( ExtractFdFromNvBuffer(map.data, &nvmmFD) != 0 )
-		{
-			LogError(LOG_GSTREAMER "gstBufferManager -- failed to get FD from NVMM memory\n");
-			return false;
-		}
-	#endif
-	
-		NvBufferParams nvmmParams;
-	
-		if( NvBufferGetParams(nvmmFD, &nvmmParams) != 0 )
-		{
-			LogError(LOG_GSTREAMER "gstBufferManager -- failed to get NVMM buffer params\n");
-			return false;
-		}
-	
-	#ifdef DEBUG
-		LogVerbose(LOG_GSTREAMER "gstBufferManager -- NVMM buffer payload type:  %s\n", nvmmParams.payloadType == NvBufferPayload_MemHandle ? "MemHandle" : "SurfArray");
-		LogVerbose(LOG_GSTREAMER "gstBufferManager -- NVMM buffer planes:  %u   format=%u\n", nvmmParams.num_planes, (uint32_t)nvmmParams.pixel_format);
-		
-		for( uint32_t n=0; n < nvmmParams.num_planes; n++ )
-			LogVerbose(LOG_GSTREAMER "gstBufferManager -- NVMM buffer plane %u:  %ux%u\n", n, nvmmParams.width[n], nvmmParams.height[n]);
-	#endif
 
-		EGLImageKHR eglImage = NvEGLImageFromFd(NULL, nvmmFD);
-		
-		if( !eglImage )
+		// copy the frame on the GPU while the GstBuffer is still mapped: the decoder
+		// can't reuse its surface before Enqueue() returns, and no NVMM memory is
+		// referenced afterwards (no CPU copy, no surface lifetime across threads)
+		if( !copyNvmm(map.data) )
 		{
-			LogError(LOG_GSTREAMER "gstBufferManager -- failed to map EGLImage from NVMM buffer\n");
+			gst_buffer_unmap(gstBuffer, &map);
 			return false;
 		}
-		
-		// nvfilter memory comes from nvvidconv, which handles NvReleaseFd() internally
-		GstMemory* gstMemory = gst_buffer_peek_memory(gstBuffer, 0);
-		
-		if( !gstMemory )
-		{
-			LogError(LOG_GSTREAMER "gstBufferManager -- failed to retrieve GstMemory object from GstBuffer\n");
-			return false;
-		}
-		
-		const bool nvmmReleaseFD = (g_strcmp0(gstMemory->allocator->mem_type, "nvfilter") != 0);	
-		
-		// update latest frame so capture thread can grab it
-		mNvmmMutex.Lock();
-		
-		if( mNvmmEGL != NULL )
-		{
-			NvDestroyEGLImage(NULL, mNvmmEGL);
-			
-			if( mNvmmReleaseFD )
-				NvReleaseFd(mNvmmFD);
-		}
-		
-		mNvmmFD = nvmmFD;
-		mNvmmEGL = eglImage;
-		mNvmmReleaseFD = nvmmReleaseFD;
-		
-		mNvmmMutex.Unlock();
-	}
-	else
-	{
-		mNvmmUsed = false;
 	}
 #endif
 
@@ -309,107 +440,9 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 
 	void* latestYUV = NULL;
 	
-#ifdef ENABLE_NVMM
-	if( mNvmmUsed )
-	{
-		mNvmmMutex.Lock();
-		
-		const int nvmmFD = mNvmmFD;
-		const bool nvmmReleaseFD = mNvmmReleaseFD;
-		EGLImageKHR eglImage = (EGLImageKHR)mNvmmEGL;
-		
-		mNvmmFD = -1;
-		mNvmmEGL = NULL;
-		mNvmmReleaseFD = false;
-		
-		mNvmmMutex.Unlock();
-		
-		if( !eglImage )
-			return -1;
-		
-		// map EGLImage into CUDA array
-		cudaGraphicsResource* eglResource = NULL;
-		cudaEglFrame eglFrame;
-		
-		if( CUDA_FAILED(cudaGraphicsEGLRegisterImage(&eglResource, eglImage, cudaGraphicsRegisterFlagsReadOnly)) )
-			return -1;
-		
-		if( CUDA_FAILED(cudaGraphicsResourceGetMappedEglFrame(&eglFrame, eglResource, 0, 0)) )
-			return -1;
 
-		if( eglFrame.planeCount != 2 )
-			LogWarning(LOG_GSTREAMER "gstBufferManager -- unexpected number of planes in NVMM buffer (%u vs 2 expected)\n", eglFrame.planeCount);
-
-		if( eglFrame.planeDesc[0].width != mOptions->width || eglFrame.planeDesc[0].height != mOptions->height )
-		{
-			LogError(LOG_GSTREAMER "gstBufferManager -- NVMM EGLImage dimensions mismatch (%ux%u when expected %ux%u)", eglFrame.planeDesc[0].width, eglFrame.planeDesc[0].height, mOptions->width, mOptions->height);
-			return -1;
-		}
-		
-		if( eglFrame.frameType != cudaEglFrameTypeArray )  // cudaEglFrameTypePitch
-		{
-			LogError(LOG_GSTREAMER "gstBufferManager -- NVMM had unexpected frame type (was pitched pointer, expected CUDA array)\n");
-			return -1;
-		}
-		
-		// NV12 buffers have multiple planes (Y @ full res and UV @ half res)
-		const size_t maxPlanes = 16;
-		size_t planePitch[maxPlanes];
-		size_t planeSize[maxPlanes];
-		size_t sizeYUV = 0;
-		
-		for( uint32_t n=0; n < eglFrame.planeCount && n < maxPlanes; n++ )
-		{
-			cudaChannelFormatDesc arrayDesc;
-			cudaExtent arrayExtent;
-			
-			CUDA(cudaArrayGetInfo(&arrayDesc, &arrayExtent, NULL, eglFrame.frame.pArray[n]));
-			
-			const size_t bpp = arrayDesc.x + arrayDesc.y + arrayDesc.z;
-			
-			planePitch[n] = (bpp * arrayExtent.width) / 8;
-			planeSize[n] = planePitch[n] * arrayExtent.height;
-			
-			sizeYUV += planeSize[n];
-			
-		#ifdef DEBUG
-			LogDebug(LOG_GSTREAMER "gstBufferManager -- plane=%u x=%i y=%i z=%i  w=%zu h=%zu d=%zu  pitch=%zu size=%zu\n", n, arrayDesc.x, arrayDesc.y, arrayDesc.z, arrayExtent.width, arrayExtent.height, arrayExtent.depth, planePitch[n], planeSize[n]);
-		#endif
-		}
-
-		// allocate CUDA memory for the image
-		if( !mNvmmCUDA || mNvmmSize != sizeYUV )
-		{
-			CUDA_FREE(mNvmmCUDA);
-			
-			if( CUDA_FAILED(cudaMalloc(&mNvmmCUDA, sizeYUV)) )
-				return -1;
-		}
-		
-		// copy arrays into linear memory (so our CUDA kernels can use it)
-		size_t planeOffset = 0;
-		
-		for( uint32_t n=0; n < eglFrame.planeCount && n < maxPlanes; n++ )
-		{
-			if( CUDA_FAILED(cudaMemcpy2DFromArrayAsync(((uint8_t*)mNvmmCUDA) + planeOffset, planePitch[n], eglFrame.frame.pArray[n], 0, 0, planePitch[n], eglFrame.planeDesc[n].height, cudaMemcpyDeviceToDevice)) )
-				return -1;
-		
-			planeOffset += planeSize[n];
-		}
-
-		latestYUV = mNvmmCUDA;
-		
-		CUDA(cudaGraphicsUnregisterResource(eglResource));
-		NvDestroyEGLImage(NULL, eglImage);
-		
-		if( nvmmReleaseFD )
-			NvReleaseFd(nvmmFD);
-	}
-#endif
-
-	// handle the CPU path (non-NVMM)
-	if( !mNvmmUsed )
-		latestYUV = mBufferYUV.Next(RingBuffer::ReadLatestOnce);
+	// both paths (CPU and NVMM) deliver their frames through the YUV ringbuffer
+	latestYUV = mBufferYUV.Next(RingBuffer::ReadLatestOnce);
 
 	if( !latestYUV )
 		return 0;
@@ -428,10 +461,30 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 		mLastTimestamp = *((uint64_t*)pLastTimestamp);
 	}
 
+	// user data: the decoding below reads one row of bit blocks (UD_ENC_FACTOR)
+	const bool userDataFits = (mBufferUserData.GetBufferSize() << 3) * (1 << (UD_ENC_FACTOR - 1)) <= (mOptions->width >> 1);
+
+	static bool userDataWarned = false;
+
+	if (mBufferUserData.GetBufferSize() > 0 && !userDataFits && !userDataWarned)
+	{
+		LogWarning(LOG_GSTREAMER "gstBufferManager -- %zu bytes of user data don't fit into one row of blocks (%u pixels wide), ignoring them\n", mBufferUserData.GetBufferSize(), mOptions->width);
+		userDataWarned = true;
+	}
+
 	void* gpu_data = NULL; // for user data
-	if (mBufferUserData.GetBufferSize() > 0) {
+	if (mBufferUserData.GetBufferSize() > 0 && userDataFits) {
 		size_t num_bits = (mBufferUserData.GetBufferSize() << 3);
-		size_t num_values = num_bits * (1 << UD_ENC_FACTOR) * (1 << UD_ENC_FACTOR) / 4; // 1 value = 2x2 pixel
+
+		// The encoder writes each bit as a block of (1 << UD_ENC_FACTOR)^2 pixels, row by row
+		// from the top left (cudaYUV-YV12.cu). One value is the mean of 2x2 pixels, so the
+		// bits below are read from value rows of width/2 values: 1 << (UD_ENC_FACTOR - 1)
+		// rows and as many columns per bit. Compute exactly those values (v7 allocated
+		// fewer values than it wrote and read values it never computed).
+		const size_t value_stride = mOptions->width >> 1;
+		const size_t value_rows   = 1 << (UD_ENC_FACTOR - 1);
+		const size_t value_cols   = num_bits * value_rows;
+		const size_t num_values   = value_stride * value_rows;
 
 		if (!mBufferUserDataHelper.Alloc(1, num_values, RingBuffer::ZeroCopy)) {
 			return false;
@@ -439,21 +492,24 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 
 		uint8_t* gpu_data = (uint8_t*)mBufferUserDataHelper.Next(RingBuffer::Write);
 		uint8_t* frame = (uint8_t*)latestYUV;
+		const size_t p = mOptions->width;
 		
 		// get data array
-		int y = 0; int n = 0; int p = mOptions->width; int x = 0;
-		for(int i=0; i < (num_values << 2); i+=2)
+		for(size_t row=0; row < value_rows; row++)
 		{
-			y = (i / p << 1);
-			n = y * p;
-			x = i - (i / p) * p;
+			const uint8_t* line = frame + (row << 1) * p;	// pixel rows 2*row and 2*row+1
 
-			gpu_data[i >> 1] = (uint8_t)((
-				(uint16_t)frame[n+x] + 
-				(uint16_t)frame[n+x+1] + 
-				(uint16_t)frame[n+p+x] + 
-				(uint16_t)frame[n+p+x+1]
-			) / 4);
+			for(size_t col=0; col < value_cols; col++)
+			{
+				const size_t x = col << 1;
+
+				gpu_data[row * value_stride + col] = (uint8_t)((
+					(uint16_t)line[x] + 
+					(uint16_t)line[x+1] + 
+					(uint16_t)line[p+x] + 
+					(uint16_t)line[p+x+1]
+				) / 4);
+			}
 		}
 	
 		// get bits
@@ -495,6 +551,13 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 	}
 
 	// output raw image if conversion format is unknown or NV12
+	if ( format == IMAGE_NV12 && mFormatYUV != IMAGE_NV12 )
+	{
+		// no conversion into NV12: don't hand out e.g. I420 as NV12
+		LogError(LOG_GSTREAMER "gstBufferManager -- can't output %s frames as nv12\n", imageFormatToStr(mFormatYUV));
+		return -1;
+	}
+
 	if ( format == IMAGE_UNKNOWN || format == IMAGE_NV12 )
 	{
 		*output = latestYUV;

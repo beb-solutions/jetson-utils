@@ -504,13 +504,17 @@ bool gstDecoder::buildLaunchStr()
 	std::ostringstream ss;
 
 	#if defined(ENABLE_NVMM)
-		const bool enable_nvmm = true;
+		const bool nvmm_available = true;
 	#else
-		const bool enable_nvmm = false;
+		const bool nvmm_available = false;
 	#endif
 	
 	// select the decoder
 	const char* decoder = gst_select_decoder(mOptions.codec, mOptions.codecType);
+
+	// keep the frames of the hardware decoders in NVMM memory up to the appsink,
+	// gstBufferManager copies them on the GPU (CPU decoders like nvjpegdec keep the CPU path)
+	const bool enable_nvmm = nvmm_available && mOptions.codecType == videoOptions::CODEC_V4L2;
 	
 	if( !decoder )
 	{
@@ -587,6 +591,7 @@ bool gstDecoder::buildLaunchStr()
 
 		ss << "udpsrc port=" << uri.port;
 		ss << " address=" << uri.location << " auto-multicast=true";
+		ss << " buffer-size=2097152";	// 2 MiB, key frame bursts and short stalls (needs net.core.rmem_max >= 2097152)
 
 		if (uri.path != "")
 			ss << " multicast-iface=" << uri.path;
@@ -754,7 +759,7 @@ bool gstDecoder::buildLaunchStr()
 		ss << "videorate drop-only=true max-rate=" << (int)mOptions.frameRate << " ! ";
 
 	// add the app sink
-	ss << "appsink name=mysink";
+	ss << "appsink name=mysink enable-last-sample=false";	// don't hold a (decoder) buffer after it was pulled
 
 	if( uri.protocol != "file" )
 		ss << " sync=false"; // wait-on-eos=false;   // this can improve realtime network streaming, but also causes videos to playback as fast as possible

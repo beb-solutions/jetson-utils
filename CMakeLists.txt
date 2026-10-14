@@ -106,6 +106,13 @@ if(NVBUF_UTILS)
 	target_link_libraries(jetson-utils nvbuf_utils)
 endif()
 
+# JetPack 5: NVMM buffers are NvBufSurface (gstBufferManager maps them as EGLImage)
+find_library(NVBUFSURFACE NAMES nvbufsurface PATHS /usr/lib/aarch64-linux-gnu/tegra)
+
+if(ENABLE_NVMM AND NVBUFSURFACE)
+	target_link_libraries(jetson-utils ${NVBUFSURFACE})
+endif()
+
 # transfer all headers to the include directory 
 file(MAKE_DIRECTORY ${PROJECT_INCLUDE_DIR}/jetson-utils)
 
