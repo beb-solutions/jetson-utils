@@ -474,7 +474,7 @@ bool gstEncoder::buildLaunchStr()
 			ss << "rtpjpegpay";
 
 		if( mOptions.codec == videoOptions::CODEC_H264 || mOptions.codec == videoOptions::CODEC_H265 ) 
-			// 1300: with ULPFEC (+18 bytes), UDP and IP headers it fits the 1368 bytes of the wg-bonder tunnel (bond0) unfragmented
+			// 1300: with the ULPFEC header (up to 18 bytes) and UDP/IP, packets stay below a link MTU of 1368
 			ss << " mtu=1300 config-interval=1";	// aggregate-mode=zero-latency";
 		
 		if( uri.protocol == "rtsp" )

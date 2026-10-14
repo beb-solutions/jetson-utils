@@ -42,10 +42,9 @@
 #include <stdlib.h>
 #include <mutex>
 
-// Applications may end with exit() while the streaming threads still deliver frames
-// (lirecon-vms calls it from its signal handler). The exit handlers of the CUDA runtime
-// and EGL tear them down then, and copyNvmm() must not use them anymore: it crashed in
-// 3 of 4 shutdowns on Xavier NX. nvmmExitHandler() is registered after CUDA and EGL were
+// Applications may end with exit() while the streaming threads still deliver frames.
+// The exit handlers of the CUDA runtime and EGL tear them down then, and copyNvmm()
+// must not use them anymore. nvmmExitHandler() is registered after CUDA and EGL were
 // set up, so it runs before their teardown; it waits for running copies and stops new ones.
 static pthread_rwlock_t nvmmExitLock = PTHREAD_RWLOCK_INITIALIZER;
 static bool nvmmExiting = false;
