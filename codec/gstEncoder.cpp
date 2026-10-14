@@ -474,7 +474,8 @@ bool gstEncoder::buildLaunchStr()
 			ss << "rtpjpegpay";
 
 		if( mOptions.codec == videoOptions::CODEC_H264 || mOptions.codec == videoOptions::CODEC_H265 ) 
-			ss << " mtu=1370 config-interval=1";	// aggregate-mode=zero-latency";
+			// 1300: with ULPFEC (+18 bytes), UDP and IP headers it fits the 1368 bytes of the wg-bonder tunnel (bond0) unfragmented
+			ss << " mtu=1300 config-interval=1";	// aggregate-mode=zero-latency";
 		
 		if( uri.protocol == "rtsp" )
 			ss << " name=pay0";	 // GstRTSPServer expects the payloaders to be named pay0, pay1, ect
